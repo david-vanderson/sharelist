@@ -132,8 +132,10 @@ pub fn appFrame() !dvui.App.Result {
         var reorder = dvui.reorder(@src(), .{}, .{ .expand = .horizontal });
         var vbox = dvui.box(@src(), .{}, .{ .expand = .horizontal });
 
+        var last_index: usize = 0;
         for (list.list.items, 0..) |*li, i| {
             if (li.status != .want) continue;
+            last_index = i;
             var reorderable = reorder.reorderable(@src(), .{}, .{ .id_extra = li.id, .expand = .horizontal });
 
             if (reorderable.removed()) {
@@ -195,10 +197,20 @@ pub fn appFrame() !dvui.App.Result {
             reorderable.deinit();
         }
 
+        if (reorder.finalSlot()) {
+            insert_before_idx = last_index + 1;
+        }
+
         if (insert_before_idx) |ibi| {
             if (removed_idx) |ri| {
                 const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                list.reorder(time, ri, ibi);
+                if (ri > ibi) {
+                    // we want to be before ibi, but reorder will move that down, so the slot we want is exactly ibi
+                    list.reorder(time, ri, ibi);
+                } else if (ri != ibi - 1) {
+                    // ibi is not moving, so we want the slot before it
+                    list.reorder(time, ri, ibi - 1);
+                }
             }
         }
 

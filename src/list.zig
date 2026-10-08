@@ -53,53 +53,42 @@ pub const Item = struct {
     }
 };
 
-pub fn reorder(self: *@This(), time: i128, from: usize, to_in: usize) void {
-    var to = to_in;
+pub fn reorder(self: *@This(), time: i128, from: usize, to: usize) void {
     std.log.debug("reoder {d} {d}", .{ from, to });
 
+    var item = self.list.items[from];
     if (from < to) {
-        to -|= 1;
-        if (from == to) {
-            std.log.debug("reoder nothing", .{});
-            return;
-        }
-        var item = self.list.items[from];
+        // shift up
         for (from..to) |i| {
             self.list.items[i] = self.list.items[i + 1];
         }
-        const before = self.list.items[to - 1].order;
-        if (self.list.items.len > to + 1) {
-            const after = self.list.items[to + 1].order;
-            const between = (before + after) / 2;
-            item.updateOrder(time, between);
-            self.list.items[to] = item;
-            if (between == before or between == after) {
-                self.reorderAll(time);
-            }
-        } else {
-            const space = 1.0 - before;
-            if (space < 0.000001) {
-                item.updateOrder(time, before + space / 2);
-                self.list.items[to] = item;
-                self.reorderAll(time);
-            } else {
-                item.updateOrder(time, before + 0.000001);
-                self.list.items[to] = item;
-            }
-        }
     } else {
-        var item = self.list.items[from];
+        // shift down
+        // from == to might be true during merge
         var i: usize = from;
         while (i > to) : (i -= 1) {
             self.list.items[i] = self.list.items[i - 1];
         }
-        const before: f64 = if (to == 0) 0 else self.list.items[to - 1].order;
+    }
+
+    const before: f64 = if (to == 0) 0 else self.list.items[to - 1].order;
+    if (self.list.items.len > to + 1) {
         const after = self.list.items[to + 1].order;
         const between = (before + after) / 2;
         item.updateOrder(time, between);
         self.list.items[to] = item;
         if (between == before or between == after) {
             self.reorderAll(time);
+        }
+    } else {
+        const space = 1.0 - before;
+        if (space < 0.000001) {
+            item.updateOrder(time, before + space / 2);
+            self.list.items[to] = item;
+            self.reorderAll(time);
+        } else {
+            item.updateOrder(time, before + 0.000001);
+            self.list.items[to] = item;
         }
     }
 }
@@ -130,6 +119,20 @@ fn reorderAll(self: *@This(), time: i128) void {
     for (self.list.items, 1..) |*li, i| {
         li.updateOrder(time, 0.000001 * @as(f64, @floatFromInt(i)));
     }
+}
+
+pub fn merge(self: *@This(), gpa: std.mem.Allocator, time: i128, other: *const @This()) void {
+    _ = self;
+    _ = gpa;
+    _ = time;
+    _ = other;
+    // for each item in other:
+    // * if we have that one (same id), update ours if other's time is later
+    // * if we don't, shove it in the list (not updating order)
+    // sort our list (by order, then id)
+    // * if any duplicate orders:
+    //   * there will only be 2
+    //   * take the second and reorder it
 }
 
 pub fn format(self: *const @This(), writer: *std.Io.Writer) !void {
