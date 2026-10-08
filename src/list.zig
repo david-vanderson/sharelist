@@ -122,10 +122,6 @@ fn reorderAll(self: *@This(), time: i128) void {
 }
 
 pub fn merge(self: *@This(), gpa: std.mem.Allocator, time: i128, other: *const @This()) void {
-    _ = self;
-    _ = gpa;
-    _ = time;
-    _ = other;
     // for each item in other:
     // * if we have that one (same id), update ours if other's time is later
     // * if we don't, shove it in the list (not updating order)
@@ -133,6 +129,40 @@ pub fn merge(self: *@This(), gpa: std.mem.Allocator, time: i128, other: *const @
     // * if any duplicate orders:
     //   * there will only be 2
     //   * take the second and reorder it
+
+    outer: for (other.list.items) |*oi| {
+        for (self.list.items) |*li| {
+            if (li.id == oi.id) {
+                if (oi.last_write > li.last_write) {
+                    li.* = oi.*;
+                }
+                continue :outer;
+            }
+        }
+
+        // didn't find a match
+        self.list.append(gpa, oi.*) catch @panic("OOM");
+    }
+
+    std.mem.sortUnstable(Item, self.list.items, {}, (struct {
+        fn lessThan(_: void, lhs: Item, rhs: Item) bool {
+            if (lhs.order < rhs.order) return true;
+            if (lhs.order > rhs.order) return false;
+            if (lhs.id < rhs.id) return true;
+            return false;
+        }
+    }).lessThan);
+
+    // we might have duplicate order numbers (only ever 2)
+    for (0..self.list.items.len -| 1) |i| {
+        const item = &self.list.items[i];
+        const next = &self.list.items[i + 1];
+
+        if (item.order == next.order) {
+            std.log.debug("duplicate order at {d} {d}", .{ i, i + 1 });
+            self.reorder(time, i + 1, i + 1);
+        }
+    }
 }
 
 pub fn format(self: *const @This(), writer: *std.Io.Writer) !void {

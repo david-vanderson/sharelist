@@ -59,6 +59,7 @@ pub fn appFrame() !dvui.App.Result {
         scaler.deinit();
 
         var new_item = false;
+        var refresh_items = false;
 
         {
             var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal });
@@ -85,10 +86,13 @@ pub fn appFrame() !dvui.App.Result {
 
                 _ = response;
 
-                list.list.clearAndFree(gpa);
-
                 var r: std.Io.Reader = .fixed(result_body.written());
-                list = List.load(gpa, &r);
+                var loaded = List.load(gpa, &r);
+                defer loaded.list.clearAndFree(gpa);
+
+                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                list.merge(gpa, time, &loaded);
+                refresh_items = true;
             }
 
             if (dvui.button(@src(), "Save", .{}, .{})) {
@@ -163,9 +167,15 @@ pub fn appFrame() !dvui.App.Result {
                 .min_size_content = dvui.Font.theme(.body).sizeM(1, 1),
                 .max_size_content = .size(dvui.Font.theme(.body).sizeM(200, 1)),
             });
+
+            if (refresh_items) {
+                te.textSet(std.mem.sliceTo(&li.name, 0), false);
+            }
+
             if (new_item and i == list.list.items.len - 1) {
                 dvui.focusWidget(te.data().id, null, null);
             }
+
             var save = false;
             const focused = dvui.dataGetPtrDefault(null, te.data().id, "focused", bool, false);
             if (te.data().id == dvui.focusedWidgetId()) {
