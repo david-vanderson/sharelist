@@ -58,47 +58,70 @@ pub fn appFrame() !dvui.App.Result {
         var scaler = dvui.scale(@src(), .{ .scale = &dvui.currentWindow().content_scale, .pinch_zoom = .global }, .{ .rect = .cast(dvui.windowRect()) });
         scaler.deinit();
 
-        if (dvui.button(@src(), "Debug Window", .{}, .{})) {
-            dvui.toggleDebugWindow();
-        }
+        var new_item = false;
 
-        if (dvui.button(@src(), "Load", .{}, .{})) blk: {
-            var client: std.http.Client = .{
-                .allocator = gpa,
-                .io = dvui.io,
-            };
-            defer client.deinit();
+        {
+            var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal });
+            defer hbox.deinit();
 
-            var result_body = std.Io.Writer.Allocating.init(gpa);
-            defer result_body.deinit();
+            if (dvui.button(@src(), "Debug", .{}, .{})) {
+                dvui.toggleDebugWindow();
+            }
 
-            const response = client.fetch(.{ .location = .{ .url = "http://localhost:8111/list.txt" }, .response_writer = &result_body.writer }) catch |err| {
-                std.log.err("Failed to fetch list: {any}", .{err});
-                break :blk;
-            };
+            if (dvui.button(@src(), "Load", .{}, .{})) blk: {
+                var client: std.http.Client = .{
+                    .allocator = gpa,
+                    .io = dvui.io,
+                };
+                defer client.deinit();
 
-            _ = response;
+                var result_body = std.Io.Writer.Allocating.init(gpa);
+                defer result_body.deinit();
 
-            list.list.clearAndFree(gpa);
+                const response = client.fetch(.{ .location = .{ .url = "http://localhost:8111/list.txt" }, .response_writer = &result_body.writer }) catch |err| {
+                    std.log.err("Failed to fetch list: {any}", .{err});
+                    break :blk;
+                };
 
-            var r: std.Io.Reader = .fixed(result_body.written());
-            list = List.load(gpa, &r);
-        }
-        if (dvui.button(@src(), "Save", .{}, .{})) {
-            std.debug.print("List:\n{f}", .{list});
+                _ = response;
 
-            const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
-            defer gpa.free(payload);
+                list.list.clearAndFree(gpa);
 
-            var client: std.http.Client = .{
-                .allocator = gpa,
-                .io = dvui.io,
-            };
-            defer client.deinit();
+                var r: std.Io.Reader = .fixed(result_body.written());
+                list = List.load(gpa, &r);
+            }
 
-            _ = client.fetch(.{ .location = .{ .url = "http://localhost:8111/list.txt" }, .payload = payload }) catch |err| {
-                std.log.err("Failed to post list: {any}", .{err});
-            };
+            if (dvui.button(@src(), "Save", .{}, .{})) {
+                std.debug.print("List:\n{f}", .{list});
+
+                const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
+                defer gpa.free(payload);
+
+                var client: std.http.Client = .{
+                    .allocator = gpa,
+                    .io = dvui.io,
+                };
+                defer client.deinit();
+
+                _ = client.fetch(.{ .location = .{ .url = "http://localhost:8111/list.txt" }, .payload = payload }) catch |err| {
+                    std.log.err("Failed to post list: {any}", .{err});
+                };
+            }
+
+            if (dvui.button(@src(), "Test", .{}, .{})) {
+                for (0..100) |i| {
+                    std.debug.print("reoder {d}\n", .{i});
+                    const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                    list.reorder(time, 0, 1);
+                }
+            }
+
+            if (dvui.buttonIcon(@src(), "plus", dvui.entypo.plus, .{}, .{}, .{ .gravity_x = 1.0 })) {
+                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                const item = List.Item.new(time, "New Item");
+                list.append(gpa, time, item);
+                new_item = true;
+            }
         }
 
         var scroll = dvui.scrollArea(@src(), .{}, .{ .expand = .both, .style = .window });
@@ -123,20 +146,25 @@ pub fn appFrame() !dvui.App.Result {
 
             var temp: bool = false;
             if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
-                li.status = .got;
+                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                li.updateStatus(time, .got);
             }
 
             //dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
 
             var te = dvui.textEntry(@src(), .{
-                .multiline = true,
-                //.break_lines = true,
+                .text = .{ .internal = .{ .limit = List.NAME_MAX_LEN } },
                 .text_initial = std.mem.sliceTo(&li.name, 0),
             }, .{
                 .style = .window,
                 .border = .all(0),
                 .min_size_content = dvui.Font.theme(.body).sizeM(1, 1),
+                .max_size_content = .size(dvui.Font.theme(.body).sizeM(200, 1)),
             });
+            if (new_item and i == list.list.items.len - 1) {
+                dvui.focusWidget(te.data().id, null, null);
+            }
+            var save = false;
             const focused = dvui.dataGetPtrDefault(null, te.data().id, "focused", bool, false);
             if (te.data().id == dvui.focusedWidgetId()) {
                 if (!focused.*) {
@@ -147,7 +175,14 @@ pub fn appFrame() !dvui.App.Result {
             } else if (focused.*) {
                 focused.* = false;
                 // we were focused and lost it
-                li.name = List.Item.array(te.textGet());
+                save = true;
+            }
+
+            if (te.enter_pressed) save = true;
+
+            if (save) {
+                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                li.updateName(time, te.textGet());
             }
             te.deinit();
 
@@ -158,6 +193,13 @@ pub fn appFrame() !dvui.App.Result {
             _ = dvui.separator(@src(), .{ .expand = .horizontal });
 
             reorderable.deinit();
+        }
+
+        if (insert_before_idx) |ibi| {
+            if (removed_idx) |ri| {
+                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                list.reorder(time, ri, ibi);
+            }
         }
 
         vbox.deinit();
@@ -173,7 +215,8 @@ pub fn appFrame() !dvui.App.Result {
 
             var temp: bool = true;
             if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
-                li.status = .want;
+                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                li.updateStatus(time, .want);
             }
 
             dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
