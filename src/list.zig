@@ -207,7 +207,7 @@ fn loadItem(reader: *std.Io.Reader) !Item {
     const name = try reader.takeDelimiterExclusive('\n');
     reader.toss(1);
 
-    std.debug.print("loadItem {d} {d} {d} {s}\n", .{ id, status, order, name });
+    std.log.debug("loadItem {d} {d} {d} {s}\n", .{ id, status, order, name });
 
     return .{
         .id = id,

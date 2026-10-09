@@ -52,6 +52,8 @@ pub fn appDeinit(win: *dvui.Window) void {
     list.deinit(win.gpa);
 }
 
+const LOAD_ID = 123;
+
 // Run each frame to do normal UI
 pub fn appFrame() !dvui.App.Result {
     {
@@ -60,6 +62,24 @@ pub fn appFrame() !dvui.App.Result {
 
         var new_item = false;
         var refresh_items = false;
+
+        if (dvui.backend.kind == .web) {
+            // check outstanding fetches
+            if (dvui.backend.wasm.wasm_fetch_completed(LOAD_ID) > 0) {
+                const size = dvui.backend.wasm.wasm_fetch_completed_body_size(LOAD_ID);
+                const data = try gpa.alloc(u8, size);
+                defer gpa.free(data);
+                dvui.backend.wasm.wasm_fetch_completed_body(LOAD_ID, data.ptr);
+                std.log.debug("wasm fetch complete: {s}", .{data});
+
+                var r: std.Io.Reader = .fixed(data);
+                var loaded = List.load(gpa, &r);
+                defer loaded.deinit(gpa);
+
+                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                list.merge(gpa, time, &loaded);
+            }
+        }
 
         {
             var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal });
@@ -70,33 +90,39 @@ pub fn appFrame() !dvui.App.Result {
             }
 
             if (dvui.button(@src(), "Load", .{}, .{})) blk: {
-                var client: std.http.Client = .{
-                    .allocator = gpa,
-                    .io = dvui.io,
-                };
-                defer client.deinit();
+                const url = "http://localhost:8111/list.txt";
+                if (dvui.backend.kind == .web) {
+                    const body = "";
+                    dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, body.ptr, body.len);
+                } else {
+                    var client: std.http.Client = .{
+                        .allocator = gpa,
+                        .io = dvui.io,
+                    };
+                    defer client.deinit();
 
-                var result_body = std.Io.Writer.Allocating.init(gpa);
-                defer result_body.deinit();
+                    var result_body = std.Io.Writer.Allocating.init(gpa);
+                    defer result_body.deinit();
 
-                const response = client.fetch(.{ .location = .{ .url = "http://localhost:8111/list.txt" }, .response_writer = &result_body.writer }) catch |err| {
-                    std.log.err("Failed to fetch list: {any}", .{err});
-                    break :blk;
-                };
+                    const response = client.fetch(.{ .location = .{ .url = url }, .response_writer = &result_body.writer }) catch |err| {
+                        std.log.err("Failed to fetch list: {any}", .{err});
+                        break :blk;
+                    };
 
-                _ = response;
+                    _ = response;
 
-                var r: std.Io.Reader = .fixed(result_body.written());
-                var loaded = List.load(gpa, &r);
-                defer loaded.deinit(gpa);
+                    var r: std.Io.Reader = .fixed(result_body.written());
+                    var loaded = List.load(gpa, &r);
+                    defer loaded.deinit(gpa);
 
-                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                list.merge(gpa, time, &loaded);
+                    const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
+                    list.merge(gpa, time, &loaded);
+                }
                 refresh_items = true;
             }
 
             if (dvui.button(@src(), "Save", .{}, .{})) {
-                std.debug.print("List:\n{f}", .{list});
+                std.log.debug("List:\n{f}", .{list});
 
                 const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
                 defer gpa.free(payload);
@@ -114,7 +140,7 @@ pub fn appFrame() !dvui.App.Result {
 
             if (dvui.button(@src(), "Test", .{}, .{})) {
                 for (0..100) |i| {
-                    std.debug.print("reoder {d}\n", .{i});
+                    std.log.debug("reorder {d}", .{i});
                     const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
                     list.reorder(time, 0, 1);
                 }

@@ -63,7 +63,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
             const content = try reader.interface.allocRemaining(gpa, .unlimited);
             defer gpa.free(content);
 
-            request.respond(content, .{}) catch {};
+            request.respond(content, .{ .extra_headers = &.{.{ .name = "Access-Control-Allow-Origin", .value = "*" }} }) catch {};
         } else if (request.head.method == .POST) {
             var buf: [1000]u8 = undefined;
             var reader = request.server.reader.bodyReader(&buf, request.head.transfer_encoding, request.head.content_length);
