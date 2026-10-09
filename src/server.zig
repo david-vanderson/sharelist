@@ -1,4 +1,5 @@
 const std = @import("std");
+const List = @import("list.zig");
 
 var gpa: std.mem.Allocator = undefined;
 
@@ -71,10 +72,29 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
 
             std.log.debug("post:\n{s}", .{payload});
 
-            const file = try std.Io.Dir.cwd().openFile(io, "list.txt", .{ .mode = .write_only });
-            var writer = file.writer(io, &buf);
-            try writer.interface.writeAll(payload);
+            var r: std.Io.Reader = .fixed(payload);
+            var posted = List.load(gpa, &r);
+            defer posted.deinit(gpa);
+
+            const file = try std.Io.Dir.cwd().openFile(io, "list.txt", .{});
+            var file_reader = file.reader(io, &buf);
+            const file_content = try file_reader.interface.allocRemaining(gpa, .unlimited);
+            file.close(io);
+            defer gpa.free(file_content);
+
+            r = .fixed(file_content);
+            var saved = List.load(gpa, &r);
+            defer saved.deinit(gpa);
+
+            std.log.debug("merge", .{});
+            const time = std.Io.Clock.real.now(io).nanoseconds;
+            saved.merge(gpa, time, &posted);
+
+            const file2 = try std.Io.Dir.cwd().openFile(io, "list.txt", .{ .mode = .write_only });
+            var writer = file2.writer(io, &buf);
+            try writer.interface.print("{f}", .{saved});
             try writer.end();
+            file2.close(io);
 
             request.respond(std.http.Status.ok.phrase().?, .{}) catch {};
         }

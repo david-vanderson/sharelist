@@ -217,3 +217,7 @@ fn loadItem(reader: *std.Io.Reader) !Item {
         .name = Item.array(name),
     };
 }
+
+pub fn deinit(self: *@This(), gpa: std.mem.Allocator) void {
+    self.list.clearAndFree(gpa);
+}

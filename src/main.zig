@@ -49,7 +49,7 @@ pub fn appInit(win: *dvui.Window) !void {
 // Run as app is shutting down before dvui.Window.deinit()
 pub fn appDeinit(win: *dvui.Window) void {
     // good place to free anything you've allocated with win.gpa
-    list.list.clearAndFree(win.gpa);
+    list.deinit(win.gpa);
 }
 
 // Run each frame to do normal UI
@@ -88,7 +88,7 @@ pub fn appFrame() !dvui.App.Result {
 
                 var r: std.Io.Reader = .fixed(result_body.written());
                 var loaded = List.load(gpa, &r);
-                defer loaded.list.clearAndFree(gpa);
+                defer loaded.deinit(gpa);
 
                 const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
                 list.merge(gpa, time, &loaded);
