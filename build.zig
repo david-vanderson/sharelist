@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) void {
                 .target = web_target,
                 .optimize = optimize,
                 .link_libc = false,
-                .strip = if (optimize == .ReleaseFast or optimize == .ReleaseSmall) true else false,
+                .strip = if (optimize == .fast or optimize == .small) true else false,
             }),
         });
 

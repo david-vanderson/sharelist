@@ -15,10 +15,6 @@ pub const dvui_app: dvui.App = .{
             .size = .{ .w = 800.0, .h = 600.0 },
             .min_size = .{ .w = 250.0, .h = 350.0 },
             .title = "ShareList",
-            .window_init_options = .{
-                // Could set a default theme here
-                // .theme = dvui.Theme.builtin.dracula,
-            },
         },
     },
     .frameFn = appFrame,
@@ -52,16 +48,31 @@ pub fn appDeinit(win: *dvui.Window) void {
     list.deinit(win.gpa);
 }
 
+pub fn global_pinch_zoom() void {
+    const uniqueId = dvui.parentGet().extendId(@src(), 0);
+    const scale_gesture = dvui.dataGetPtrDefault(null, uniqueId, "scale_gesture", f32, 1.0);
+
+    const evts = dvui.events();
+    for (evts) |*e| {
+        // only thing we care about now is if someone else already handled it
+        if (!e.handled and e.evt == .mouse) {
+            if (e.evt.mouse.action == .pinch_begin) {
+                scale_gesture.* = dvui.currentWindow().content_scale;
+            } else if (e.evt.mouse.action == .pinch_update) {
+                dvui.currentWindow().content_scale = scale_gesture.* * e.evt.mouse.action.pinch_update;
+            }
+        }
+    }
+}
+
 const LOAD_ID = 123;
 
 // Run each frame to do normal UI
 pub fn appFrame() !dvui.App.Result {
     {
-        var scaler = dvui.scale(@src(), .{ .scale = &dvui.currentWindow().content_scale, .pinch_zoom = .global }, .{ .rect = .cast(dvui.windowRect()) });
-        scaler.deinit();
-
         var new_item = false;
         var refresh_items = false;
+        var items_visible = false;
 
         if (dvui.backend.kind == .web) {
             // check outstanding fetches
@@ -165,8 +176,15 @@ pub fn appFrame() !dvui.App.Result {
         var last_index: usize = 0;
         for (list.list.items, 0..) |*li, i| {
             if (li.status != .want) continue;
+
+            items_visible = true;
             last_index = i;
+
             var reorderable = reorder.reorderable(@src(), .{}, .{ .id_extra = li.id, .expand = .horizontal });
+            defer reorderable.deinit();
+
+            var anim = dvui.animate(@src(), .{ .kind = .vertical, .duration = if (reorderable.floating()) 0 else 300_000 }, .{ .expand = .both });
+            defer anim.deinit();
 
             if (reorderable.removed()) {
                 removed_idx = i; // this entry is being dragged
@@ -174,10 +192,14 @@ pub fn appFrame() !dvui.App.Result {
                 insert_before_idx = i; // this entry was dropped onto
             }
 
-            var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal });
+            var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal, .padding = .{ .x = 8 } });
 
             var temp: bool = false;
             if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
+                anim.startEnd();
+            }
+
+            if (anim.end()) {
                 const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
                 li.updateStatus(time, .got);
             }
@@ -229,8 +251,6 @@ pub fn appFrame() !dvui.App.Result {
             hbox.deinit();
 
             _ = dvui.separator(@src(), .{ .expand = .horizontal });
-
-            reorderable.deinit();
         }
 
         if (reorder.finalSlot()) {
@@ -253,12 +273,14 @@ pub fn appFrame() !dvui.App.Result {
         vbox.deinit();
         reorder.deinit();
 
-        dvui.label(@src(), "Got", .{}, .{});
+        _ = dvui.separator(@src(), .{ .expand = .horizontal });
 
         for (list.list.items, 0..) |*li, i| {
             if (li.status != .got) continue;
 
-            var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .id_extra = i, .expand = .horizontal });
+            items_visible = true;
+
+            var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .id_extra = i, .expand = .horizontal, .padding = .{ .x = 8 } });
             defer hbox.deinit();
 
             var temp: bool = true;
@@ -267,9 +289,17 @@ pub fn appFrame() !dvui.App.Result {
                 li.updateStatus(time, .want);
             }
 
+            _ = dvui.spacer(@src(), .{ .padding = .{ .x = 4 } });
+
             dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
         }
+
+        if (!items_visible) {
+            dvui.label(@src(), "-- No Items --", .{}, .{ .gravity_x = 0.5 });
+        }
     }
+
+    global_pinch_zoom();
 
     return .ok;
 }
