@@ -67,6 +67,10 @@ pub fn global_pinch_zoom() void {
 
 const LOAD_ID = 123;
 
+fn time() i128 {
+    return dvui.currentWindow().dateTime();
+}
+
 // Run each frame to do normal UI
 pub fn appFrame() !dvui.App.Result {
     {
@@ -87,8 +91,7 @@ pub fn appFrame() !dvui.App.Result {
                 var loaded = List.load(gpa, &r);
                 defer loaded.deinit(gpa);
 
-                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                list.merge(gpa, time, &loaded);
+                list.merge(gpa, time(), &loaded);
             }
         }
 
@@ -126,8 +129,7 @@ pub fn appFrame() !dvui.App.Result {
                     var loaded = List.load(gpa, &r);
                     defer loaded.deinit(gpa);
 
-                    const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                    list.merge(gpa, time, &loaded);
+                    list.merge(gpa, time(), &loaded);
                 }
                 refresh_items = true;
             }
@@ -138,29 +140,33 @@ pub fn appFrame() !dvui.App.Result {
                 const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
                 defer gpa.free(payload);
 
-                var client: std.http.Client = .{
-                    .allocator = gpa,
-                    .io = dvui.io,
-                };
-                defer client.deinit();
+                const url = "http://localhost:8111/list.txt";
+                if (dvui.backend.kind == .web) {
+                    dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, payload.ptr, payload.len);
+                } else {
+                    var client: std.http.Client = .{
+                        .allocator = gpa,
+                        .io = dvui.io,
+                    };
+                    defer client.deinit();
 
-                _ = client.fetch(.{ .location = .{ .url = "http://localhost:8111/list.txt" }, .payload = payload }) catch |err| {
-                    std.log.err("Failed to post list: {any}", .{err});
-                };
+                    _ = client.fetch(.{ .location = .{ .url = "http://localhost:8111/list.txt" }, .payload = payload }) catch |err| {
+                        std.log.err("Failed to post list: {any}", .{err});
+                    };
+                }
             }
 
             if (dvui.button(@src(), "Test", .{}, .{})) {
                 for (0..100) |i| {
                     std.log.debug("reorder {d}", .{i});
-                    const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                    list.reorder(time, 0, 1);
+                    list.reorder(time(), 0, 1);
                 }
             }
 
             if (dvui.buttonIcon(@src(), "plus", dvui.entypo.plus, .{}, .{}, .{ .gravity_x = 1.0 })) {
-                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                const item = List.Item.new(time, "New Item");
-                list.append(gpa, time, item);
+                std.log.debug("plus time {d}", .{time()});
+                const item = List.Item.new(time(), "New Item");
+                list.append(gpa, time(), item);
                 new_item = true;
             }
         }
@@ -200,8 +206,7 @@ pub fn appFrame() !dvui.App.Result {
             }
 
             if (anim.end()) {
-                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                li.updateStatus(time, .got);
+                li.updateStatus(time(), .got);
             }
 
             //dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
@@ -241,8 +246,7 @@ pub fn appFrame() !dvui.App.Result {
             if (te.enter_pressed) save = true;
 
             if (save) {
-                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                li.updateName(time, te.textGet());
+                li.updateName(time(), te.textGet());
             }
             te.deinit();
 
@@ -259,13 +263,12 @@ pub fn appFrame() !dvui.App.Result {
 
         if (insert_before_idx) |ibi| {
             if (removed_idx) |ri| {
-                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
                 if (ri > ibi) {
                     // we want to be before ibi, but reorder will move that down, so the slot we want is exactly ibi
-                    list.reorder(time, ri, ibi);
+                    list.reorder(time(), ri, ibi);
                 } else if (ri != ibi - 1) {
                     // ibi is not moving, so we want the slot before it
-                    list.reorder(time, ri, ibi - 1);
+                    list.reorder(time(), ri, ibi - 1);
                 }
             }
         }
@@ -285,8 +288,7 @@ pub fn appFrame() !dvui.App.Result {
 
             var temp: bool = true;
             if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
-                const time = std.Io.Clock.real.now(dvui.io).nanoseconds;
-                li.updateStatus(time, .want);
+                li.updateStatus(time(), .want);
             }
 
             _ = dvui.spacer(@src(), .{ .padding = .{ .x = 4 } });

@@ -96,7 +96,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
             try writer.end();
             file2.close(io);
 
-            request.respond(std.http.Status.ok.phrase().?, .{}) catch {};
+            request.respond(std.http.Status.ok.phrase().?, .{ .extra_headers = &.{.{ .name = "Access-Control-Allow-Origin", .value = "*" }} }) catch {};
         }
     } else {
         request.respond(std.http.Status.not_found.phrase().?, .{ .status = .not_found, .keep_alive = false }) catch {};
