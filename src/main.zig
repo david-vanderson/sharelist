@@ -35,6 +35,7 @@ var gpa: std.mem.Allocator = undefined;
 // Runs before the first frame, after backend and dvui.Window.init()
 // - runs between win.begin()/win.end()
 pub fn appInit(win: *dvui.Window) !void {
+    win.content_scale = 1.2;
     orig_content_scale = win.content_scale;
     gpa = win.gpa;
 
@@ -75,7 +76,7 @@ fn time() i128 {
 
 // Run each frame to do normal UI
 pub fn appFrame() !dvui.App.Result {
-    var new_item = false;
+    const new_item = false;
     var refresh_items = false;
     var items_visible = false;
 
@@ -144,24 +145,24 @@ pub fn appFrame() !dvui.App.Result {
             refresh_items = true;
         }
 
-        if (dvui.button(@src(), "Test", .{}, .{})) {
-            for (0..100) |i| {
-                std.log.debug("reorder {d}", .{i});
-                list.reorder(time(), 0, 1);
-            }
-        }
+        //if (dvui.button(@src(), "Test", .{}, .{})) {
+        //    for (0..100) |i| {
+        //        std.log.debug("reorder {d}", .{i});
+        //        list.reorder(time(), 0, 1);
+        //    }
+        //}
     }
 
     {
         var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal });
         defer hbox.deinit();
 
-        if (dvui.buttonIcon(@src(), "plus", dvui.entypo.plus, .{}, .{}, .{ .expand = .ratio })) {
-            std.log.debug("plus time {d}", .{time()});
-            const item = List.Item.new(time(), "New Item");
-            list.append(gpa, time(), item);
-            new_item = true;
-        }
+        //if (dvui.buttonIcon(@src(), "plus", dvui.entypo.plus, .{}, .{}, .{ .expand = .ratio })) {
+        //    std.log.debug("plus time {d}", .{time()});
+        //    const item = List.Item.new(time(), "New Item");
+        //    list.append(gpa, time(), item);
+        //    new_item = true;
+        //}
 
         var te: dvui.TextEntryWidget = undefined;
         te.init(@src(), .{}, .{ .expand = .horizontal });
@@ -309,10 +310,12 @@ pub fn appFrame() !dvui.App.Result {
 
     _ = dvui.separator(@src(), .{ .expand = .horizontal });
 
+    var items_got = false;
     for (list.list.items, 0..) |*li, i| {
         if (li.status != .got) continue;
 
         items_visible = true;
+        items_got = true;
 
         var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .id_extra = i, .expand = .horizontal, .padding = .{ .x = 8 } });
         defer hbox.deinit();
@@ -325,6 +328,15 @@ pub fn appFrame() !dvui.App.Result {
         _ = dvui.spacer(@src(), .{ .padding = .{ .x = 4 } });
 
         dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
+    }
+
+    if (items_got) {
+        if (dvui.button(@src(), "Clear Checked", .{}, .{ .gravity_x = 0.5 })) {
+            for (list.list.items) |*li| {
+                if (li.status == .got)
+                    li.updateStatus(time(), .history);
+            }
+        }
     }
 
     if (!items_visible) {
