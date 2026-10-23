@@ -6,12 +6,14 @@ var gpa: std.mem.Allocator = undefined;
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     gpa = init.gpa;
+    const arena = init.arena.allocator();
 
-    //const arena = init.arena.allocator();
-    //const args = try init.minimal.args.toSlice(arena);
-    //if (args.len != 1) return error.MissingArguments;
+    const args = try init.minimal.args.toSlice(arena);
+    if (args.len < 4) return error.MissingArguments;
 
-    const addr = comptime std.Io.net.IpAddress.parse("127.0.0.1", 8111) catch unreachable;
+    try readFiles(io, arena, args);
+
+    const addr = comptime std.Io.net.IpAddress.parse("0.0.0.0", 8111) catch unreachable;
 
     var server = try addr.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
@@ -26,6 +28,41 @@ pub fn main(init: std.process.Init) !void {
         };
         errdefer stream.close(io);
         try io_group.concurrent(io, accept, .{ stream, io });
+    }
+}
+
+const Response = struct {
+    mime: []const u8,
+    location: []const u8,
+    content: []const u8,
+    etag: []const u8,
+};
+
+var html: Response = .{ .mime = "text/html", .location = undefined, .content = undefined, .etag = undefined };
+var js: Response = .{ .mime = "text/javascript", .location = undefined, .content = undefined, .etag = undefined };
+var wasm: Response = .{ .mime = "application/wasm", .location = undefined, .content = undefined, .etag = undefined };
+
+fn readFiles(io: std.Io, arena: std.mem.Allocator, args: []const [:0]const u8) !void {
+    const cwd: std.Io.Dir = .cwd();
+    var read_buf: [1024]u8 = undefined;
+    for (args[1..4], [_]*Response{ &html, &js, &wasm }) |path, response| {
+        const file = try cwd.openFile(io, path, .{});
+        defer file.close(io);
+
+        response.location = try std.fmt.allocPrint(arena, "/{s}", .{std.fs.path.basename(path)});
+
+        var file_reader = file.reader(io, &read_buf);
+        const reader = &file_reader.interface;
+        const content = try reader.allocRemaining(arena, .unlimited);
+        response.content = content;
+
+        var hash: [32]u8 = undefined;
+        std.crypto.hash.sha2.Sha256.hash(content, &hash, .{});
+        const etag = try arena.create([2 + std.base64.url_safe.Encoder.calcSize(hash.len)]u8);
+        etag[0] = '"';
+        etag[etag.len - 1] = '"';
+        _ = std.base64.url_safe.Encoder.encode(etag[1 .. etag.len - 1], &hash);
+        response.etag = etag;
     }
 }
 
@@ -55,7 +92,26 @@ fn acceptInner(stream: std.Io.net.Stream, io: std.Io) !void {
 fn serve(request: *std.http.Server.Request, io: std.Io) !void {
     std.log.debug("target: {s}\n", .{request.head.target});
 
-    if (std.mem.eql(u8, request.head.target, "/list.txt")) {
+    const uri = std.Uri.parseAfterScheme("http", request.head.target) catch return error.uri_parse;
+    var path_buf: [32]u8 = undefined;
+    const path = uri.path.toRaw(&path_buf) catch return error.path_to_raw;
+
+    if (std.mem.eql(u8, path, "/")) {
+        try request.respond(html.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = html.mime }} });
+        return;
+    }
+
+    if (std.mem.eql(u8, path, "/web.js")) {
+        try request.respond(js.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = js.mime }} });
+        return;
+    }
+
+    if (std.mem.eql(u8, path, "/web.wasm")) {
+        try request.respond(wasm.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = wasm.mime }} });
+        return;
+    }
+
+    if (std.mem.eql(u8, path, "/list.txt")) {
         if (request.head.method == .GET) {
             const file = try std.Io.Dir.cwd().openFile(io, "list.txt", .{});
             var buf: [1000]u8 = undefined;
@@ -96,7 +152,10 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
             try writer.end();
             file2.close(io);
 
-            request.respond(std.http.Status.ok.phrase().?, .{ .extra_headers = &.{.{ .name = "Access-Control-Allow-Origin", .value = "*" }} }) catch {};
+            const content = try std.fmt.allocPrint(gpa, "{f}", .{saved});
+            defer gpa.free(content);
+
+            request.respond(content, .{ .extra_headers = &.{.{ .name = "Access-Control-Allow-Origin", .value = "*" }} }) catch {};
         }
     } else {
         request.respond(std.http.Status.not_found.phrase().?, .{ .status = .not_found, .keep_alive = false }) catch {};

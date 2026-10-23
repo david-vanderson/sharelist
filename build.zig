@@ -75,9 +75,7 @@ pub fn build(b: *std.Build) void {
         compile_step.dependOn(&b.addInstallFileWithDir(output, .prefix, "bin/index.html").step);
         compile_step.dependOn(&b.addInstallFileWithDir(web_js, .prefix, "bin/web.js").step);
         b.getInstallStep().dependOn(compile_step);
-    }
 
-    {
         const mod = b.createModule(.{
             .root_source_file = b.path("src/server.zig"),
             .target = target,
@@ -89,14 +87,17 @@ pub fn build(b: *std.Build) void {
             .root_module = mod,
         });
 
-        const compile_step = b.step("compile-server", "Compile Server");
-        compile_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
-        b.getInstallStep().dependOn(compile_step);
+        const compile_server = b.step("compile-server", "Compile Server");
+        compile_server.dependOn(&b.addInstallArtifact(exe, .{}).step);
+        b.getInstallStep().dependOn(compile_server);
 
         const run_cmd = b.addRunArtifact(exe);
-        run_cmd.step.dependOn(compile_step);
+        run_cmd.step.dependOn(compile_server);
 
         const run_step = b.step("serve", "Run Server");
         run_step.dependOn(&run_cmd.step);
+        run_cmd.addFileArg(output);
+        run_cmd.addFileArg(web_js);
+        run_cmd.addArtifactArg(web_test);
     }
 }

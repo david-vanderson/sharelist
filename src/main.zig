@@ -83,16 +83,20 @@ pub fn appFrame() !dvui.App.Result {
         // check outstanding fetches
         if (dvui.backend.wasm.wasm_fetch_completed(LOAD_ID) > 0) {
             const size = dvui.backend.wasm.wasm_fetch_completed_body_size(LOAD_ID);
-            const data = try gpa.alloc(u8, size);
-            defer gpa.free(data);
-            dvui.backend.wasm.wasm_fetch_completed_body(LOAD_ID, data.ptr);
-            std.log.debug("wasm fetch complete: {s}", .{data});
+            var data: []u8 = "";
+            defer if (size > 0) gpa.free(data);
+            if (size > 0) {
+                data = try gpa.alloc(u8, size);
+                dvui.backend.wasm.wasm_fetch_completed_body(LOAD_ID, data.ptr);
+            }
 
             var r: std.Io.Reader = .fixed(data);
             var loaded = List.load(gpa, &r);
             defer loaded.deinit(gpa);
 
             list.merge(gpa, time(), &loaded);
+
+            std.log.debug("wasm fetch complete: {s}", .{data});
         }
     }
 
@@ -108,12 +112,15 @@ pub fn appFrame() !dvui.App.Result {
             dvui.toggleDebugWindow();
         }
 
-        if (dvui.button(@src(), "Load", .{}, .{})) blk: {
-            const url = "http://localhost:8111/list.txt";
+        if (dvui.button(@src(), "Sync", .{}, .{})) blk: {
+            const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
+            defer gpa.free(payload);
+
             if (dvui.backend.kind == .web) {
-                const body = "";
-                dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, body.ptr, body.len);
+                const url = "list.txt";
+                dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, payload.ptr, payload.len);
             } else {
+                const url = "http://localhost:8111/list.txt";
                 var client: std.http.Client = .{
                     .allocator = gpa,
                     .io = dvui.io,
@@ -123,12 +130,10 @@ pub fn appFrame() !dvui.App.Result {
                 var result_body = std.Io.Writer.Allocating.init(gpa);
                 defer result_body.deinit();
 
-                const response = client.fetch(.{ .location = .{ .url = url }, .response_writer = &result_body.writer }) catch |err| {
-                    std.log.err("Failed to fetch list: {any}", .{err});
+                _ = client.fetch(.{ .location = .{ .url = url }, .payload = payload, .response_writer = &result_body.writer }) catch |err| {
+                    std.log.err("Failed to post list: {any}", .{err});
                     break :blk;
                 };
-
-                _ = response;
 
                 var r: std.Io.Reader = .fixed(result_body.written());
                 var loaded = List.load(gpa, &r);
@@ -137,28 +142,6 @@ pub fn appFrame() !dvui.App.Result {
                 list.merge(gpa, time(), &loaded);
             }
             refresh_items = true;
-        }
-
-        if (dvui.button(@src(), "Save", .{}, .{})) {
-            std.log.debug("List:\n{f}", .{list});
-
-            const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
-            defer gpa.free(payload);
-
-            const url = "http://localhost:8111/list.txt";
-            if (dvui.backend.kind == .web) {
-                dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, payload.ptr, payload.len);
-            } else {
-                var client: std.http.Client = .{
-                    .allocator = gpa,
-                    .io = dvui.io,
-                };
-                defer client.deinit();
-
-                _ = client.fetch(.{ .location = .{ .url = "http://localhost:8111/list.txt" }, .payload = payload }) catch |err| {
-                    std.log.err("Failed to post list: {any}", .{err});
-                };
-            }
         }
 
         if (dvui.button(@src(), "Test", .{}, .{})) {
