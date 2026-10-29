@@ -222,13 +222,15 @@ pub fn appFrame() !dvui.App.Result {
             dvui.toggleDebugWindow();
         }
 
-        const status = dvui.backend.wasm.wasm_fetch_status(LOAD_ID);
-        if (status < 0) {
-            dvui.refresh(null, @src(), null);
-            dvui.icon(@src(), "sync", dvui.entypo.cycle, .{}, .{
-                .expand = .ratio,
-                .rotation = -std.math.pi * @as(f32, @floatFromInt(@mod(@divFloor(dvui.frameTimeNS(), 1_000_000), 1000))) / 1000,
-            });
+        if (dvui.backend.kind == .web) {
+            const status = dvui.backend.wasm.wasm_fetch_status(LOAD_ID);
+            if (status < 0) {
+                dvui.refresh(null, @src(), null);
+                dvui.icon(@src(), "sync", dvui.entypo.cycle, .{}, .{
+                    .expand = .ratio,
+                    .rotation = -std.math.pi * @as(f32, @floatFromInt(@mod(@divFloor(dvui.frameTimeNS(), 1_000_000), 1000))) / 1000,
+                });
+            }
         }
 
         //if (dvui.button(@src(), "Test", .{}, .{})) {
@@ -263,19 +265,31 @@ pub fn appFrame() !dvui.App.Result {
             if (sug.addChoiceLabel("[close]")) {
                 sug.close();
             }
+            var matches: std.ArrayList(*List.Item) = .empty;
             for (list.stuff.items) |*li| {
+                if (li.status == .tag) continue;
                 if (std.ascii.startsWithIgnoreCase(&li.name, te.textGet())) {
-                    if (sug.addChoiceLabel(std.mem.sliceTo(&li.name, 0))) {
-                        if (editing_tags) {
-                            li.updateStatus(time(), .tag);
-                        } else {
-                            li.updateStatus(time(), .want);
-                            li.updateTag(time(), tag_id);
-                        }
+                    matches.append(dvui.currentWindow().arena(), li) catch {};
+                }
+            }
+            std.mem.sortUnstable(*List.Item, matches.items, {}, (struct {
+                fn lessThan(_: void, lhs: *List.Item, rhs: *List.Item) bool {
+                    if (lhs.last_write > rhs.last_write) return true;
+                    return false;
+                }
+            }).lessThan);
 
-                        te.textSet("", false);
-                        break;
+            for (matches.items) |lip| {
+                if (sug.addChoiceLabel(std.mem.sliceTo(&lip.name, 0))) {
+                    if (editing_tags) {
+                        lip.updateStatus(time(), .tag);
+                    } else {
+                        lip.updateStatus(time(), .want);
+                        lip.updateTag(time(), tag_id);
                     }
+
+                    te.textSet("", false);
+                    break;
                 }
             }
         }

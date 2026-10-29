@@ -36,9 +36,9 @@ const Response = struct {
     etag: []const u8,
 };
 
-var html: Response = .{ .mime = "text/html", .location = undefined, .content = undefined, .etag = undefined };
-var js: Response = .{ .mime = "text/javascript", .location = undefined, .content = undefined, .etag = undefined };
-var wasm: Response = .{ .mime = "application/wasm", .location = undefined, .content = undefined, .etag = undefined };
+var html: Response = .{ .mime = "text/html", .location = undefined, .content = "", .etag = undefined };
+var js: Response = .{ .mime = "text/javascript", .location = undefined, .content = "", .etag = undefined };
+var wasm: Response = .{ .mime = "application/wasm", .location = undefined, .content = "", .etag = undefined };
 
 fn readFiles(io: std.Io, arena: std.mem.Allocator, args: []const [:0]const u8) !void {
     const cwd: std.Io.Dir = .cwd();
@@ -95,7 +95,11 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
     const path = uri.path.toRaw(&path_buf) catch return error.path_to_raw;
 
     if (std.mem.eql(u8, path, "/")) {
-        try request.respond(html.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = html.mime }} });
+        if (html.content.len > 0) {
+            try request.respond(html.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = html.mime }} });
+        } else {
+            try request.respond(std.http.Status.not_found.phrase().?, .{ .status = .not_found, .keep_alive = false });
+        }
         return;
     }
 
