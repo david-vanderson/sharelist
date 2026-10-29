@@ -6,6 +6,7 @@ const List = @import("list.zig");
 var list: List = .empty;
 var tag_id: u32 = 0;
 var editing_tags: bool = false;
+var last_sync: i128 = 0;
 
 // To be a dvui App:
 // * declare "dvui_app"
@@ -84,6 +85,7 @@ fn callAfterDelete(id: dvui.Id, response: dvui.enums.DialogResponse) !void {
             for (list.stuff.items) |*li| {
                 if (li.id == item_id) {
                     li.updateStatus(time(), .history);
+                    last_sync = 0;
                     break;
                 }
             }
@@ -92,6 +94,7 @@ fn callAfterDelete(id: dvui.Id, response: dvui.enums.DialogResponse) !void {
 }
 
 fn sync() !void {
+    last_sync = time();
     dvui.toast(@src(), .{ .message = "Sync", .timeout = 1_000_000 });
 
     const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
@@ -101,9 +104,10 @@ fn sync() !void {
         const url = "list.txt";
         const status = dvui.backend.wasm.wasm_fetch_status(LOAD_ID);
         if (status < 0) {
-            std.log.warn("wasm_fetch already in flight (sending again): {d}", .{status});
+            std.log.warn("wasm_fetch already in flight: {d}", .{status});
+        } else {
+            dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, payload.ptr, payload.len);
         }
-        dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, payload.ptr, payload.len);
     } else {
         const url = "http://localhost:8111/list.txt";
         var client: std.http.Client = .{
@@ -133,6 +137,7 @@ pub fn appFrame() !dvui.App.Result {
     const new_item = false;
     var refresh_items = false;
     var items_visible = false;
+    var changed = false;
 
     if (dvui.backend.kind == .web) {
         // check outstanding fetches
@@ -151,6 +156,7 @@ pub fn appFrame() !dvui.App.Result {
             defer loaded.deinit(gpa);
 
             list.merge(gpa, time(), &loaded);
+            refresh_items = true;
 
             std.log.debug("wasm fetch complete ({d}): {s}", .{ status, data });
         }
@@ -214,6 +220,11 @@ pub fn appFrame() !dvui.App.Result {
         _ = dvui.spacer(@src(), .{ .expand = .horizontal });
 
         if (dvui.button(@src(), "Sync", .{}, .{ .gravity_x = 1.0 })) {
+            try sync();
+            refresh_items = true;
+        }
+
+        if ((time() - last_sync) > 5 * std.time.ns_per_min) {
             try sync();
             refresh_items = true;
         }
@@ -283,9 +294,11 @@ pub fn appFrame() !dvui.App.Result {
                 if (sug.addChoiceLabel(std.mem.sliceTo(&lip.name, 0))) {
                     if (editing_tags) {
                         lip.updateStatus(time(), .tag);
+                        changed = true;
                     } else {
                         lip.updateStatus(time(), .want);
                         lip.updateTag(time(), tag_id);
+                        changed = true;
                     }
 
                     te.textSet("", false);
@@ -363,6 +376,7 @@ pub fn appFrame() !dvui.App.Result {
 
             if (anim.end()) {
                 li.updateStatus(time(), if (editing_tags) .history else .got);
+                changed = true;
             }
         }
 
@@ -405,6 +419,7 @@ pub fn appFrame() !dvui.App.Result {
         if (save) {
             if (!std.mem.eql(u8, te.textGet(), std.mem.sliceTo(&li.name, 0))) {
                 li.updateName(time(), te.textGet());
+                changed = true;
             }
         }
         te.deinit();
@@ -461,6 +476,7 @@ pub fn appFrame() !dvui.App.Result {
             var temp: bool = true;
             if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
                 li.updateStatus(time(), .want);
+                changed = true;
             }
 
             _ = dvui.spacer(@src(), .{ .padding = .{ .x = 4 } });
@@ -471,8 +487,10 @@ pub fn appFrame() !dvui.App.Result {
         if (items_got) {
             if (dvui.button(@src(), "Clear Checked", .{}, .{ .gravity_x = 0.5 })) {
                 for (list.stuff.items) |*li| {
-                    if (li.status == .got)
+                    if (li.status == .got) {
                         li.updateStatus(time(), .history);
+                        changed = true;
+                    }
                 }
             }
         }
@@ -481,6 +499,8 @@ pub fn appFrame() !dvui.App.Result {
             dvui.label(@src(), "-- No Items --", .{}, .{ .gravity_x = 0.5 });
         }
     }
+
+    if (changed) try sync();
 
     global_pinch_zoom();
 

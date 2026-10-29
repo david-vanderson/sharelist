@@ -9,6 +9,7 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
 
     const args = try init.minimal.args.toSlice(arena);
+    for (args) |a| std.debug.print("arg: {s}\n", .{a});
     if (args.len == 4) try readFiles(io, arena, args);
 
     const addr = comptime std.Io.net.IpAddress.parse("0.0.0.0", 8111) catch unreachable;
@@ -114,6 +115,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
     }
 
     if (std.mem.eql(u8, path, "/list.txt")) {
+        //_ = try io.sleep(.fromSeconds(2), .awake);
         if (request.head.method == .GET) {
             const file = try std.Io.Dir.cwd().openFile(io, "list.txt", .{});
             var buf: [1000]u8 = undefined;
