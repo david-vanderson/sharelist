@@ -9,9 +9,7 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
 
     const args = try init.minimal.args.toSlice(arena);
-    if (args.len < 4) return error.MissingArguments;
-
-    try readFiles(io, arena, args);
+    if (args.len == 4) try readFiles(io, arena, args);
 
     const addr = comptime std.Io.net.IpAddress.parse("0.0.0.0", 8111) catch unreachable;
 

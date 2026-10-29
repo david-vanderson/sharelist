@@ -4,6 +4,8 @@ const dvui = @import("dvui");
 const List = @import("list.zig");
 
 var list: List = .empty;
+var tag_id: u32 = 0;
+var editing_tags: bool = false;
 
 // To be a dvui App:
 // * declare "dvui_app"
@@ -74,6 +76,58 @@ fn time() i128 {
     return dvui.realTime();
 }
 
+fn callAfterDelete(id: dvui.Id, response: dvui.enums.DialogResponse) !void {
+    const item_id = dvui.dataGet(null, id, "id", u32) orelse return;
+    switch (response) {
+        else => return,
+        .ok => {
+            for (list.stuff.items) |*li| {
+                if (li.id == item_id) {
+                    li.updateStatus(time(), .history);
+                    break;
+                }
+            }
+        },
+    }
+}
+
+fn sync() !void {
+    dvui.toast(@src(), .{ .message = "Sync", .timeout = 1_000_000 });
+
+    const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
+    defer gpa.free(payload);
+
+    if (dvui.backend.kind == .web) {
+        const url = "list.txt";
+        const status = dvui.backend.wasm.wasm_fetch_status(LOAD_ID);
+        if (status < 0) {
+            std.log.warn("wasm_fetch already in flight (sending again): {d}", .{status});
+        }
+        dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, payload.ptr, payload.len);
+    } else {
+        const url = "http://localhost:8111/list.txt";
+        var client: std.http.Client = .{
+            .allocator = gpa,
+            .io = dvui.io,
+        };
+        defer client.deinit();
+
+        var result_body = std.Io.Writer.Allocating.init(gpa);
+        defer result_body.deinit();
+
+        _ = client.fetch(.{ .location = .{ .url = url }, .payload = payload, .response_writer = &result_body.writer }) catch |err| {
+            std.log.err("Failed to post list: {any}", .{err});
+            return;
+        };
+
+        var r: std.Io.Reader = .fixed(result_body.written());
+        var loaded = List.load(gpa, &r);
+        defer loaded.deinit(gpa);
+
+        list.merge(gpa, time(), &loaded);
+    }
+}
+
 // Run each frame to do normal UI
 pub fn appFrame() !dvui.App.Result {
     const new_item = false;
@@ -82,13 +136,14 @@ pub fn appFrame() !dvui.App.Result {
 
     if (dvui.backend.kind == .web) {
         // check outstanding fetches
-        if (dvui.backend.wasm.wasm_fetch_completed(LOAD_ID) > 0) {
-            const size = dvui.backend.wasm.wasm_fetch_completed_body_size(LOAD_ID);
+        const status = dvui.backend.wasm.wasm_fetch_status(LOAD_ID);
+        if (status > 0) {
+            const size = dvui.backend.wasm.wasm_fetch_body_size(LOAD_ID);
             var data: []u8 = "";
             defer if (size > 0) gpa.free(data);
             if (size > 0) {
                 data = try gpa.alloc(u8, size);
-                dvui.backend.wasm.wasm_fetch_completed_body(LOAD_ID, data.ptr);
+                dvui.backend.wasm.wasm_fetch_body(LOAD_ID, data.ptr);
             }
 
             var r: std.Io.Reader = .fixed(data);
@@ -97,7 +152,7 @@ pub fn appFrame() !dvui.App.Result {
 
             list.merge(gpa, time(), &loaded);
 
-            std.log.debug("wasm fetch complete: {s}", .{data});
+            std.log.debug("wasm fetch complete ({d}): {s}", .{ status, data });
         }
     }
 
@@ -105,44 +160,75 @@ pub fn appFrame() !dvui.App.Result {
         var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal, .background = true, .style = .window });
         defer hbox.deinit();
 
-        dvui.label(@src(), "Groceries", .{}, .{ .gravity_y = 0.5, .font = dvui.Font.theme(.body).larger(2).withWeight(.bold) });
+        {
+            var dd: dvui.DropdownWidget = undefined;
+            dd.init(@src(), .{}, .{});
+            defer dd.deinit();
+
+            var hbox2 = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .both });
+            if (editing_tags) {
+                dvui.label(@src(), "Editing Tags", .{}, .{ .gravity_y = 0.5, .padding = .{} });
+            } else if (tag_id == 0) {
+                dvui.label(@src(), "All", .{}, .{ .gravity_y = 0.5, .padding = .{} });
+            } else {
+                for (list.stuff.items) |*li| {
+                    if (li.id == tag_id) {
+                        const name = std.mem.sliceTo(&li.name, 0);
+                        dvui.label(@src(), "{s}", .{name}, .{ .gravity_y = 0.5, .padding = .{} });
+                        break;
+                    }
+                }
+            }
+            dvui.icon(
+                @src(),
+                "dropdown_triangle",
+                dvui.entypo.chevron_small_down,
+                .{},
+                .{ .gravity_y = 0.5, .role = .none },
+            );
+            hbox2.deinit();
+
+            if (dd.dropped()) {
+                for (list.stuff.items) |*li| {
+                    if (li.status == .tag) {
+                        const name = std.mem.sliceTo(&li.name, 0);
+                        if (dd.addChoiceLabel(name)) {
+                            tag_id = li.id;
+                            editing_tags = false;
+                        }
+                    }
+                }
+
+                if (dd.addChoiceLabel("All")) {
+                    tag_id = 0;
+                    editing_tags = false;
+                }
+
+                if (dd.addChoiceLabel("[Edit Tags]")) {
+                    tag_id = 0;
+                    editing_tags = true;
+                }
+            }
+        }
 
         _ = dvui.spacer(@src(), .{ .expand = .horizontal });
 
-        if (dvui.button(@src(), "Debug", .{}, .{})) {
+        if (dvui.button(@src(), "Sync", .{}, .{ .gravity_x = 1.0 })) {
+            try sync();
+            refresh_items = true;
+        }
+
+        if (dvui.button(@src(), "Debug", .{}, .{ .gravity_x = 1.0 })) {
             dvui.toggleDebugWindow();
         }
 
-        if (dvui.button(@src(), "Sync", .{}, .{})) blk: {
-            const payload = try std.fmt.allocPrint(gpa, "{f}", .{list});
-            defer gpa.free(payload);
-
-            if (dvui.backend.kind == .web) {
-                const url = "list.txt";
-                dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, payload.ptr, payload.len);
-            } else {
-                const url = "http://localhost:8111/list.txt";
-                var client: std.http.Client = .{
-                    .allocator = gpa,
-                    .io = dvui.io,
-                };
-                defer client.deinit();
-
-                var result_body = std.Io.Writer.Allocating.init(gpa);
-                defer result_body.deinit();
-
-                _ = client.fetch(.{ .location = .{ .url = url }, .payload = payload, .response_writer = &result_body.writer }) catch |err| {
-                    std.log.err("Failed to post list: {any}", .{err});
-                    break :blk;
-                };
-
-                var r: std.Io.Reader = .fixed(result_body.written());
-                var loaded = List.load(gpa, &r);
-                defer loaded.deinit(gpa);
-
-                list.merge(gpa, time(), &loaded);
-            }
-            refresh_items = true;
+        const status = dvui.backend.wasm.wasm_fetch_status(LOAD_ID);
+        if (status < 0) {
+            dvui.refresh(null, @src(), null);
+            dvui.icon(@src(), "sync", dvui.entypo.cycle, .{}, .{
+                .expand = .ratio,
+                .rotation = -std.math.pi * @as(f32, @floatFromInt(@mod(@divFloor(dvui.frameTimeNS(), 1_000_000), 1000))) / 1000,
+            });
         }
 
         //if (dvui.button(@src(), "Test", .{}, .{})) {
@@ -177,10 +263,16 @@ pub fn appFrame() !dvui.App.Result {
             if (sug.addChoiceLabel("[close]")) {
                 sug.close();
             }
-            for (list.list.items) |*li| {
-                if (std.mem.startsWith(u8, &li.name, te.textGet())) {
+            for (list.stuff.items) |*li| {
+                if (std.ascii.startsWithIgnoreCase(&li.name, te.textGet())) {
                     if (sug.addChoiceLabel(std.mem.sliceTo(&li.name, 0))) {
-                        li.updateStatus(time(), .want);
+                        if (editing_tags) {
+                            li.updateStatus(time(), .tag);
+                        } else {
+                            li.updateStatus(time(), .want);
+                            li.updateTag(time(), tag_id);
+                        }
+
                         te.textSet("", false);
                         break;
                     }
@@ -193,7 +285,7 @@ pub fn appFrame() !dvui.App.Result {
         if (te.enter_pressed) make_new = true;
 
         if (make_new) {
-            const item = List.Item.new(time(), te.textGet());
+            const item = List.Item.new(time(), if (editing_tags) .tag else .want, tag_id, te.textGet());
             list.append(gpa, time(), item);
             te.textSet("", false);
         }
@@ -212,8 +304,13 @@ pub fn appFrame() !dvui.App.Result {
     var vbox = dvui.box(@src(), .{}, .{ .expand = .horizontal });
 
     var last_index: usize = 0;
-    for (list.list.items, 0..) |*li, i| {
-        if (li.status != .want) continue;
+    for (list.stuff.items, 0..) |*li, i| {
+        if (editing_tags) {
+            if (li.status != .tag) continue;
+        } else {
+            if (li.status != .want) continue;
+            if (tag_id != 0 and li.tag != tag_id) continue;
+        }
 
         items_visible = true;
         last_index = i;
@@ -232,13 +329,27 @@ pub fn appFrame() !dvui.App.Result {
 
         var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal, .padding = .{ .x = 8 } });
 
-        var temp: bool = false;
-        if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
-            anim.startEnd();
-        }
+        if (editing_tags) {
+            if (dvui.buttonIcon(
+                @src(),
+                "trash",
+                dvui.entypo.trash,
+                .{},
+                .{},
+                .{ .gravity_y = 0.5 },
+            )) {
+                const msg = std.fmt.allocPrint(dvui.currentWindow().arena(), "Delete \'{s}\'?", .{std.mem.sliceTo(&li.name, 0)}) catch "Delete?";
+                dvui.dialog(@src(), .{ .id = li.id }, .{ .title = "Delete Tag?", .message = msg, .callafterFn = callAfterDelete, .cancel_label = "Cancel", .default = .cancel });
+            }
+        } else {
+            var temp: bool = false;
+            if (dvui.checkbox(@src(), &temp, null, .{ .gravity_y = 0.5 })) {
+                anim.startEnd();
+            }
 
-        if (anim.end()) {
-            li.updateStatus(time(), .got);
+            if (anim.end()) {
+                li.updateStatus(time(), if (editing_tags) .history else .got);
+            }
         }
 
         //dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
@@ -257,7 +368,7 @@ pub fn appFrame() !dvui.App.Result {
             te.textSet(std.mem.sliceTo(&li.name, 0), false);
         }
 
-        if (new_item and i == list.list.items.len - 1) {
+        if (new_item and i == list.stuff.items.len - 1) {
             dvui.focusWidget(te.data().id, null, null);
         }
 
@@ -278,11 +389,22 @@ pub fn appFrame() !dvui.App.Result {
         if (te.enter_pressed) save = true;
 
         if (save) {
-            li.updateName(time(), te.textGet());
+            if (!std.mem.eql(u8, te.textGet(), std.mem.sliceTo(&li.name, 0))) {
+                li.updateName(time(), te.textGet());
+            }
         }
         te.deinit();
 
         _ = dvui.ReorderWidget.draggable(@src(), .{ .reorderable = reorderable }, .{ .gravity_x = 1.0, .min_size_content = dvui.Size.all(30), .gravity_y = 0.5, .color_text = .gray });
+
+        if (!editing_tags and tag_id == 0) {
+            for (list.stuff.items) |*item| {
+                if (li.tag == item.id) {
+                    dvui.label(@src(), "{s}", .{std.mem.sliceTo(&item.name, 0)}, .{ .color_text = .gray, .gravity_x = 1.0, .font = dvui.Font.theme(.body).larger(-2) });
+                    break;
+                }
+            }
+        }
 
         hbox.deinit();
 
@@ -308,39 +430,42 @@ pub fn appFrame() !dvui.App.Result {
     vbox.deinit();
     reorder.deinit();
 
-    _ = dvui.separator(@src(), .{ .expand = .horizontal });
+    if (!editing_tags) {
+        _ = dvui.separator(@src(), .{ .expand = .horizontal });
 
-    var items_got = false;
-    for (list.list.items, 0..) |*li, i| {
-        if (li.status != .got) continue;
+        var items_got = false;
+        for (list.stuff.items, 0..) |*li, i| {
+            if (li.status != .got) continue;
+            if (tag_id != 0 and li.tag != tag_id) continue;
 
-        items_visible = true;
-        items_got = true;
+            items_visible = true;
+            items_got = true;
 
-        var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .id_extra = i, .expand = .horizontal, .padding = .{ .x = 8 } });
-        defer hbox.deinit();
+            var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .id_extra = i, .expand = .horizontal, .padding = .{ .x = 8 } });
+            defer hbox.deinit();
 
-        var temp: bool = true;
-        if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
-            li.updateStatus(time(), .want);
+            var temp: bool = true;
+            if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
+                li.updateStatus(time(), .want);
+            }
+
+            _ = dvui.spacer(@src(), .{ .padding = .{ .x = 4 } });
+
+            dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
         }
 
-        _ = dvui.spacer(@src(), .{ .padding = .{ .x = 4 } });
-
-        dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
-    }
-
-    if (items_got) {
-        if (dvui.button(@src(), "Clear Checked", .{}, .{ .gravity_x = 0.5 })) {
-            for (list.list.items) |*li| {
-                if (li.status == .got)
-                    li.updateStatus(time(), .history);
+        if (items_got) {
+            if (dvui.button(@src(), "Clear Checked", .{}, .{ .gravity_x = 0.5 })) {
+                for (list.stuff.items) |*li| {
+                    if (li.status == .got)
+                        li.updateStatus(time(), .history);
+                }
             }
         }
-    }
 
-    if (!items_visible) {
-        dvui.label(@src(), "-- No Items --", .{}, .{ .gravity_x = 0.5 });
+        if (!items_visible) {
+            dvui.label(@src(), "-- No Items --", .{}, .{ .gravity_x = 0.5 });
+        }
     }
 
     global_pinch_zoom();
