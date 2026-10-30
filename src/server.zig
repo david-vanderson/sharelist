@@ -48,7 +48,7 @@ fn readFiles(io: std.Io, arena: std.mem.Allocator, args: []const [:0]const u8) !
         const file = try cwd.openFile(io, path, .{});
         defer file.close(io);
 
-        response.location = try std.fmt.allocPrint(arena, "/{s}", .{std.fs.path.basename(path)});
+        response.location = try std.fmt.allocPrint(arena, "/sharelist/{s}", .{std.fs.path.basename(path)});
 
         var file_reader = file.reader(io, &read_buf);
         const reader = &file_reader.interface;
@@ -98,7 +98,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
     var path_buf: [100]u8 = undefined;
     const path = uri.path.toRaw(&path_buf) catch return error.path_to_raw;
 
-    if (std.mem.eql(u8, path, "/")) {
+    if (std.mem.eql(u8, path, "/sharelist")) {
         if (html.content.len > 0) {
             try request.respond(html.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = html.mime }} });
         } else {
@@ -108,17 +108,17 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
         return;
     }
 
-    if (std.mem.eql(u8, path, "/web.js")) {
+    if (std.mem.eql(u8, path, "/sharelist/web.js")) {
         try request.respond(js.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = js.mime }} });
         return;
     }
 
-    if (std.mem.eql(u8, path, "/web.wasm")) {
+    if (std.mem.eql(u8, path, "/sharelist/web.wasm")) {
         try request.respond(wasm.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = wasm.mime }} });
         return;
     }
 
-    if (std.mem.eql(u8, path, "/list")) {
+    if (std.mem.eql(u8, path, "/sharelist/list")) {
         if (uri.query == null) return error.query_null;
 
         var query_buf: [100]u8 = undefined;

@@ -205,7 +205,7 @@ pub fn appFrame() !dvui.App.Result {
             var loaded = List.load(gpa, &r) catch |err| blk: {
                 std.log.err("Failed to load list: {any}", .{err});
                 dvui.toast(@src(), .{ .message = "Sync Version Mismatch\nRefresh", .timeout = 5_000_000 });
-                break :blk .empty;
+                break :blk List.empty;
             };
             defer loaded.deinit(gpa);
 

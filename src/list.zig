@@ -204,7 +204,7 @@ pub fn merge(self: *@This(), gpa: std.mem.Allocator, time: i128, other: *const @
 }
 
 pub fn format(self: *const @This(), writer: *std.Io.Writer) !void {
-    try writer.print("{d} {d} {s}\n", .{ self.version, self.last_write, self.name });
+    try writer.print("{d} {d} {s}\n", .{ self.version, self.last_write, std.mem.sliceTo(&self.name, 0) });
     for (self.stuff.items) |*li| {
         try writer.print("{x} {x} {d} {d} {d} {s}\n", .{ li.id, li.tag, li.last_write, @backingInt(li.status), li.order, std.mem.sliceTo(&li.name, 0) });
     }
