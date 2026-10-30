@@ -192,7 +192,7 @@ pub fn appFrame() !dvui.App.Result {
     if (dvui.backend.kind == .web) {
         // check outstanding fetches
         const status = dvui.backend.wasm.wasm_fetch_status(LOAD_ID);
-        if (status > 0) {
+        if (status == 200) {
             const size = dvui.backend.wasm.wasm_fetch_body_size(LOAD_ID);
             var data: []u8 = "";
             defer if (size > 0) gpa.free(data);
@@ -214,6 +214,8 @@ pub fn appFrame() !dvui.App.Result {
             refresh_items = true;
 
             std.log.debug("wasm fetch complete ({d}): {s}", .{ status, data });
+        } else if (status > 0) {
+            std.log.err("wasm fetch failed ({d})", .{status});
         }
     }
 
