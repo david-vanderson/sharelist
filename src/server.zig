@@ -98,7 +98,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
     var path_buf: [100]u8 = undefined;
     const path = uri.path.toRaw(&path_buf) catch return error.path_to_raw;
 
-    if (std.mem.eql(u8, path, "/sharelist")) {
+    if (std.mem.eql(u8, path, "/sharelist/")) {
         if (html.content.len > 0) {
             try request.respond(html.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = html.mime }} });
         } else {
