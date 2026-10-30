@@ -12,7 +12,7 @@ pub fn main(init: std.process.Init) !void {
     for (args) |a| std.debug.print("arg: {s}\n", .{a});
     if (args.len == 4) try readFiles(io, arena, args);
 
-    const addr = comptime std.Io.net.IpAddress.parse("0.0.0.0", 8111) catch unreachable;
+    const addr = comptime std.Io.net.IpAddress.parse("127.0.0.1", 3000) catch unreachable;
 
     var server = try addr.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
@@ -66,12 +66,15 @@ fn readFiles(io: std.Io, arena: std.mem.Allocator, args: []const [:0]const u8) !
 }
 
 fn accept(stream: std.Io.net.Stream, io: std.Io) std.Io.Cancelable!void {
-    acceptInner(stream, io) catch |err| std.log.err("Connection error: {t}", .{err});
+    defer stream.close(io);
+
+    acceptInner(stream, io) catch |err| {
+        std.log.err("Connection error: {t}", .{err});
+        _ = try io.sleep(.fromSeconds(2), .awake);
+    };
 }
 
 fn acceptInner(stream: std.Io.net.Stream, io: std.Io) !void {
-    defer stream.close(io);
-
     var recv_buffer: [1024]u8 = undefined;
     var send_buffer: [1024]u8 = undefined;
 
@@ -89,16 +92,17 @@ fn acceptInner(stream: std.Io.net.Stream, io: std.Io) !void {
 }
 
 fn serve(request: *std.http.Server.Request, io: std.Io) !void {
-    std.log.debug("target: {s}\n", .{request.head.target});
+    std.log.debug("target: {s}", .{request.head.target});
 
     const uri = std.Uri.parseAfterScheme("http", request.head.target) catch return error.uri_parse;
-    var path_buf: [32]u8 = undefined;
+    var path_buf: [100]u8 = undefined;
     const path = uri.path.toRaw(&path_buf) catch return error.path_to_raw;
 
     if (std.mem.eql(u8, path, "/")) {
         if (html.content.len > 0) {
             try request.respond(html.content, .{ .extra_headers = &.{.{ .name = "content-type", .value = html.mime }} });
         } else {
+            _ = try io.sleep(.fromSeconds(2), .awake);
             try request.respond(std.http.Status.not_found.phrase().?, .{ .status = .not_found, .keep_alive = false });
         }
         return;
@@ -114,10 +118,29 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
         return;
     }
 
-    if (std.mem.eql(u8, path, "/list.txt")) {
-        //_ = try io.sleep(.fromSeconds(2), .awake);
+    if (std.mem.eql(u8, path, "/list")) {
+        if (uri.query == null) return error.query_null;
+
+        var query_buf: [100]u8 = undefined;
+        const query = uri.query.?.toRaw(&query_buf) catch return error.query_to_raw;
+
+        var file_buf: [100]u8 = undefined;
+        var filename: ?[]u8 = null;
+
+        var it = std.mem.tokenizeScalar(u8, query, '&');
+        while (it.next()) |q| {
+            if (std.mem.startsWith(u8, q, "id")) {
+                if (q.len != 11) return error.query;
+                const id = try std.fmt.parseInt(u32, q[3..], 16);
+                filename = try std.fmt.bufPrint(&file_buf, "lists/{x}", .{id});
+            }
+        }
+
+        if (filename == null) return error.filename_null;
+        std.log.debug("filename: {s}", .{filename.?});
+
         if (request.head.method == .GET) {
-            const file = try std.Io.Dir.cwd().openFile(io, "list.txt", .{});
+            const file = try std.Io.Dir.cwd().openFile(io, filename.?, .{});
             var buf: [1000]u8 = undefined;
             var reader = file.reader(io, &buf);
             const content = try reader.interface.allocRemaining(gpa, .unlimited);
@@ -136,7 +159,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
             var posted = List.load(gpa, &r);
             defer posted.deinit(gpa);
 
-            const file = try std.Io.Dir.cwd().openFile(io, "list.txt", .{});
+            const file = try std.Io.Dir.cwd().openFile(io, filename.?, .{});
             var file_reader = file.reader(io, &buf);
             const file_content = try file_reader.interface.allocRemaining(gpa, .unlimited);
             file.close(io);
@@ -150,7 +173,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
             const time = std.Io.Clock.real.now(io).nanoseconds;
             saved.merge(gpa, time, &posted);
 
-            const file2 = try std.Io.Dir.cwd().openFile(io, "list.txt", .{ .mode = .write_only });
+            const file2 = try std.Io.Dir.cwd().openFile(io, filename.?, .{ .mode = .write_only });
             var writer = file2.writer(io, &buf);
             try writer.interface.print("{f}", .{saved});
             try writer.end();

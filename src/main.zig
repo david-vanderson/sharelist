@@ -101,12 +101,42 @@ fn sync() !void {
     defer gpa.free(payload);
 
     if (dvui.backend.kind == .web) {
-        const url = "list.txt";
+        const url = std.mem.sliceTo(dvui.backend.wasm.wasm_url(), 0);
+        const uri = try std.Uri.parseAfterScheme("http", url);
+
+        if (uri.query == null) {
+            std.log.err("query null", .{});
+            return;
+        }
+        var query_buf: [100]u8 = undefined;
+        const query = uri.query.?.toRaw(&query_buf) catch return error.query_to_raw;
+
+        var list_id: ?u32 = null;
+
+        var it = std.mem.tokenizeScalar(u8, query, '&');
+        while (it.next()) |q| {
+            if (std.mem.startsWith(u8, q, "id")) {
+                if (q.len != 11) {
+                    std.log.err("query bad: id bad", .{});
+                    return;
+                }
+                list_id = try std.fmt.parseInt(u32, q[3..], 16);
+            }
+        }
+
+        if (list_id == null) {
+            std.log.err("query bad: no id", .{});
+            return;
+        }
+        std.log.debug("id is {any}", .{list_id});
+
+        var target_buf: [100]u8 = undefined;
+        const target = try std.fmt.bufPrint(&target_buf, "/sharelist/list?id={x}", .{list_id.?});
         const status = dvui.backend.wasm.wasm_fetch_status(LOAD_ID);
         if (status < 0) {
             std.log.warn("wasm_fetch already in flight: {d}", .{status});
         } else {
-            dvui.backend.wasm.wasm_fetch(LOAD_ID, url.ptr, url.len, payload.ptr, payload.len);
+            dvui.backend.wasm.wasm_fetch(LOAD_ID, target.ptr, target.len, payload.ptr, payload.len);
         }
     } else {
         const url = "http://localhost:8111/list.txt";
@@ -314,6 +344,7 @@ pub fn appFrame() !dvui.App.Result {
         if (make_new) {
             const item = List.Item.new(time(), if (editing_tags) .tag else .want, tag_id, te.textGet());
             list.append(gpa, time(), item);
+            changed = true;
             te.textSet("", false);
         }
 
