@@ -156,7 +156,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
             std.log.debug("post:\n{s}", .{payload});
 
             var r: std.Io.Reader = .fixed(payload);
-            var posted = List.load(gpa, &r);
+            var posted = try List.load(gpa, &r);
             defer posted.deinit(gpa);
 
             const file = try std.Io.Dir.cwd().openFile(io, filename.?, .{});
@@ -166,7 +166,7 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
             defer gpa.free(file_content);
 
             r = .fixed(file_content);
-            var saved = List.load(gpa, &r);
+            var saved = try List.load(gpa, &r);
             defer saved.deinit(gpa);
 
             std.log.debug("merge", .{});

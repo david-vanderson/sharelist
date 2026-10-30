@@ -139,7 +139,23 @@ fn sync() !void {
             dvui.backend.wasm.wasm_fetch(LOAD_ID, target.ptr, target.len, payload.ptr, payload.len);
         }
     } else {
-        const url = "http://localhost:8111/list.txt";
+        var url: ?[]const u8 = null;
+        var args = try dvui.App.main_init.?.minimal.args.iterateAllocator(dvui.currentWindow().arena());
+        defer args.deinit();
+        var arg_idx: usize = 0;
+        while (args.next()) |arg| {
+            std.log.debug("arg: {s}", .{arg});
+            if (arg_idx == 1) {
+                url = arg;
+                break;
+            }
+            arg_idx += 1;
+        }
+
+        if (url == null) {
+            std.log.err("Failed to get url arg", .{});
+        }
+
         var client: std.http.Client = .{
             .allocator = gpa,
             .io = dvui.io,
@@ -149,16 +165,20 @@ fn sync() !void {
         var result_body = std.Io.Writer.Allocating.init(gpa);
         defer result_body.deinit();
 
-        _ = client.fetch(.{ .location = .{ .url = url }, .payload = payload, .response_writer = &result_body.writer }) catch |err| {
+        _ = client.fetch(.{ .location = .{ .url = url.? }, .payload = payload, .response_writer = &result_body.writer }) catch |err| {
             std.log.err("Failed to post list: {any}", .{err});
             return;
         };
 
         var r: std.Io.Reader = .fixed(result_body.written());
-        var loaded = List.load(gpa, &r);
+        var loaded = List.load(gpa, &r) catch |err| blk: {
+            std.log.err("Failed to load list: {any}", .{err});
+            break :blk List.empty;
+        };
         defer loaded.deinit(gpa);
 
         list.merge(gpa, time(), &loaded);
+        dvui.currentWindow().title(std.mem.sliceTo(&list.name, 0));
     }
 }
 
@@ -182,10 +202,15 @@ pub fn appFrame() !dvui.App.Result {
             }
 
             var r: std.Io.Reader = .fixed(data);
-            var loaded = List.load(gpa, &r);
+            var loaded = List.load(gpa, &r) catch |err| blk: {
+                std.log.err("Failed to load list: {any}", .{err});
+                dvui.toast(@src(), .{ .message = "Sync Version Mismatch\nRefresh", .timeout = 5_000_000 });
+                break :blk .empty;
+            };
             defer loaded.deinit(gpa);
 
             list.merge(gpa, time(), &loaded);
+            dvui.currentWindow().title(std.mem.sliceTo(&list.name, 0));
             refresh_items = true;
 
             std.log.debug("wasm fetch complete ({d}): {s}", .{ status, data });
@@ -197,8 +222,27 @@ pub fn appFrame() !dvui.App.Result {
         defer hbox.deinit();
 
         {
+            var selected_idx: ?usize = null;
+            var num_tags: usize = 0;
+            for (list.stuff.items) |*li| {
+                if (li.id == tag_id) {
+                    selected_idx = num_tags;
+                }
+                if (li.status == .tag) {
+                    num_tags += 1;
+                }
+            }
+
+            if (selected_idx == null) {
+                if (editing_tags) {
+                    selected_idx = num_tags + 1;
+                } else {
+                    selected_idx = num_tags;
+                }
+            }
+
             var dd: dvui.DropdownWidget = undefined;
-            dd.init(@src(), .{}, .{});
+            dd.init(@src(), .{ .selected_index = selected_idx }, .{});
             defer dd.deinit();
 
             var hbox2 = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .both });
@@ -280,6 +324,47 @@ pub fn appFrame() !dvui.App.Result {
         //        list.reorder(time(), 0, 1);
         //    }
         //}
+    }
+
+    if (editing_tags) {
+        var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal, .background = true, .style = .window });
+        defer hbox.deinit();
+
+        dvui.label(@src(), "List Name", .{}, .{ .gravity_y = 0.5 });
+
+        var te = dvui.textEntry(@src(), .{
+            .text = .{ .internal = .{ .limit = List.NAME_MAX_LEN } },
+            .text_initial = std.mem.sliceTo(&list.name, 0),
+        }, .{ .expand = .horizontal });
+        defer te.deinit();
+
+        if (refresh_items) {
+            te.textSet(std.mem.sliceTo(&list.name, 0), false);
+        }
+
+        var save = false;
+        const focused = dvui.dataGetPtrDefault(null, te.data().id, "focused", bool, false);
+        if (te.data().id == dvui.focusedWidgetId()) {
+            if (!focused.*) {
+                // just gained focus, move cursor to end
+                te.textLayout.selection.moveCursor(std.math.maxInt(usize), false);
+            }
+            focused.* = true;
+        } else if (focused.*) {
+            focused.* = false;
+            // we were focused and lost it
+            save = true;
+        }
+
+        if (te.enter_pressed) save = true;
+
+        if (save) {
+            if (!std.mem.eql(u8, te.textGet(), std.mem.sliceTo(&list.name, 0))) {
+                list.updateName(time(), te.textGet());
+                changed = true;
+                dvui.currentWindow().title(std.mem.sliceTo(&list.name, 0));
+            }
+        }
     }
 
     {

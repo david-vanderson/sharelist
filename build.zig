@@ -24,6 +24,7 @@ pub fn build(b: *std.Build) void {
         b.getInstallStep().dependOn(compile_step);
 
         const run_cmd = b.addRunArtifact(exe);
+        run_cmd.addPassthruArgs();
         run_cmd.step.dependOn(compile_step);
 
         const run_step = b.step("run", "Run ShareList");

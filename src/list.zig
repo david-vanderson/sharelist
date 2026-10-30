@@ -1,8 +1,14 @@
 const std = @import("std");
 
+version: u8,
+name: [NAME_MAX_LEN]u8,
+last_write: i128, // nanos since posix epoch
 stuff: std.ArrayList(Item),
 
 pub const empty: @This() = .{
+    .version = 0,
+    .name = Item.array("List"),
+    .last_write = 0,
     .stuff = .empty,
 };
 
@@ -14,6 +20,11 @@ pub const Status = enum(u8) {
     got,
     history,
 };
+
+pub fn updateName(self: *@This(), time: i128, name: []const u8) void {
+    self.name = Item.array(name);
+    self.last_write = time;
+}
 
 pub const Item = struct {
     id: u32,
@@ -132,6 +143,11 @@ fn reorderAll(self: *@This(), time: i128) void {
 }
 
 pub fn merge(self: *@This(), gpa: std.mem.Allocator, time: i128, other: *const @This()) void {
+    if (other.last_write > self.last_write) {
+        self.name = other.name;
+        self.last_write = other.last_write;
+    }
+
     // for each item in other:
     // * if we have that one (same id), update ours if other's time is later
     // * if we don't, shove it in the stuff (not updating order)
@@ -188,13 +204,30 @@ pub fn merge(self: *@This(), gpa: std.mem.Allocator, time: i128, other: *const @
 }
 
 pub fn format(self: *const @This(), writer: *std.Io.Writer) !void {
+    try writer.print("{d} {d} {s}\n", .{ self.version, self.last_write, self.name });
     for (self.stuff.items) |*li| {
         try writer.print("{x} {x} {d} {d} {d} {s}\n", .{ li.id, li.tag, li.last_write, @backingInt(li.status), li.order, std.mem.sliceTo(&li.name, 0) });
     }
 }
 
-pub fn load(gpa: std.mem.Allocator, reader: *std.Io.Reader) @This() {
+pub fn load(gpa: std.mem.Allocator, reader: *std.Io.Reader) !@This() {
     var ret: @This() = .empty;
+
+    const version_str = reader.takeDelimiterExclusive(' ') catch null;
+    if (version_str) |vs| {
+        ret.version = try std.fmt.parseInt(u8, vs, 16);
+        reader.toss(1);
+
+        if (ret.version != 0) return error.Version;
+
+        const time_str = try reader.takeDelimiterExclusive(' ');
+        ret.last_write = try std.fmt.parseInt(i128, time_str, 10);
+        reader.toss(1);
+
+        ret.name = Item.array(try reader.takeDelimiterExclusive('\n'));
+        reader.toss(1);
+    }
+
     while (true) {
         const item = loadItem(reader) catch |err| {
             std.log.debug("loadItem got {any}", .{err});
