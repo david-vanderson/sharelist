@@ -111,16 +111,16 @@ fn sync() !void {
         var query_buf: [100]u8 = undefined;
         const query = uri.query.?.toRaw(&query_buf) catch return error.query_to_raw;
 
-        var list_id: ?u32 = null;
+        var list_id: ?u64 = null;
 
         var it = std.mem.tokenizeScalar(u8, query, '&');
         while (it.next()) |q| {
             if (std.mem.startsWith(u8, q, "id")) {
-                if (q.len != 11) {
+                if (q.len != 19) {
                     std.log.err("query bad: id bad", .{});
                     return;
                 }
-                list_id = try std.fmt.parseInt(u32, q[3..], 16);
+                list_id = try std.fmt.parseInt(u64, q[3..], 16);
             }
         }
 
@@ -153,7 +153,8 @@ fn sync() !void {
         }
 
         if (url == null) {
-            std.log.err("Failed to get url arg", .{});
+            url = "http://localhost:3000/sharelist/list?id=abcdef00abcdef00";
+            std.log.warn("Failed to get url arg, using default {s}", .{url.?});
         }
 
         var client: std.http.Client = .{
@@ -300,7 +301,7 @@ pub fn appFrame() !dvui.App.Result {
             refresh_items = true;
         }
 
-        if ((time() - last_sync) > 5 * std.time.ns_per_min) {
+        if ((time() - last_sync) > 1 * std.time.ns_per_min) {
             try sync();
             refresh_items = true;
         }
@@ -387,16 +388,25 @@ pub fn appFrame() !dvui.App.Result {
 
         var sug = dvui.suggestion(&te, .{ .open_on_text_change = true });
 
-        var make_new = false;
         if (sug.dropped()) {
             if (sug.addChoiceLabel(te.textGet())) {
-                make_new = true;
-                dvui.focusWidget(null, sub_win_id, null);
+                const item = List.Item.new(time(), if (editing_tags) .tag else .want, tag_id, te.textGet());
+                list.append(gpa, time(), item);
+                changed = true;
+                te.textSet("", false);
+
+                if (sug.activate_selected) {
+                    // user pressed keyboard enter, so keep focus in that case for fast entry
+                } else {
+                    dvui.focusWidget(null, sub_win_id, null);
+                }
             }
+
             if (sug.addChoiceLabel("[close]")) {
                 sug.close();
                 dvui.focusWidget(null, sub_win_id, null);
             }
+
             var matches: std.ArrayList(*List.Item) = .empty;
             for (list.stuff.items) |*li| {
                 if (li.status == .tag) continue;
@@ -430,15 +440,6 @@ pub fn appFrame() !dvui.App.Result {
         }
 
         sug.deinit();
-
-        if (te.enter_pressed) make_new = true;
-
-        if (make_new) {
-            const item = List.Item.new(time(), if (editing_tags) .tag else .want, tag_id, te.textGet());
-            list.append(gpa, time(), item);
-            changed = true;
-            te.textSet("", false);
-        }
 
         // suggestion forwards events to textEntry, so don't call te.processEvents()
         te.draw();
@@ -550,10 +551,37 @@ pub fn appFrame() !dvui.App.Result {
         _ = dvui.ReorderWidget.draggable(@src(), .{ .reorderable = reorderable }, .{ .gravity_x = 1.0, .min_size_content = dvui.Size.all(30), .gravity_y = 0.5, .color_text = .gray });
 
         if (!editing_tags and tag_id == 0) {
+            var tag_idx: usize = 0;
+            var tag_name: []const u8 = "----";
             for (list.stuff.items) |*item| {
                 if (li.tag == item.id) {
-                    dvui.label(@src(), "{s}", .{std.mem.sliceTo(&item.name, 0)}, .{ .color_text = .gray, .gravity_x = 1.0, .font = dvui.Font.theme(.body).larger(-2) });
+                    tag_name = std.mem.sliceTo(&item.name, 0);
                     break;
+                }
+                if (item.status == .tag) {
+                    tag_idx += 1;
+                }
+            }
+
+            var dd: dvui.DropdownWidget = undefined;
+            dd.init(@src(), .{ .selected_index = tag_idx }, .{ .gravity_x = 1.0, .padding = .all(3), .background = false });
+            defer dd.deinit();
+
+            dvui.label(@src(), "{s}", .{tag_name}, .{ .color_text = .gray, .font = dvui.Font.theme(.body).larger(-2), .padding = .{}, .margin = .{} });
+
+            if (dd.dropped()) {
+                if (dd.addChoiceLabel("----")) {
+                    li.updateTag(time(), 0);
+                    changed = true;
+                }
+                for (list.stuff.items) |*lip| {
+                    if (lip.status == .tag) {
+                        const name = std.mem.sliceTo(&lip.name, 0);
+                        if (dd.addChoiceLabel(name)) {
+                            li.updateTag(time(), lip.id);
+                            changed = true;
+                        }
+                    }
                 }
             }
         }

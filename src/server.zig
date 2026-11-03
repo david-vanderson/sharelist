@@ -130,8 +130,8 @@ fn serve(request: *std.http.Server.Request, io: std.Io) !void {
         var it = std.mem.tokenizeScalar(u8, query, '&');
         while (it.next()) |q| {
             if (std.mem.startsWith(u8, q, "id")) {
-                if (q.len != 11) return error.query;
-                const id = try std.fmt.parseInt(u32, q[3..], 16);
+                if (q.len != 19) return error.query;
+                const id = try std.fmt.parseInt(u64, q[3..], 16);
                 filename = try std.fmt.bufPrint(&file_buf, "lists/{x}", .{id});
             }
         }

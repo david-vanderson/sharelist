@@ -266,7 +266,7 @@ fn loadItem(reader: *std.Io.Reader) !Item {
     const name = try reader.takeDelimiterExclusive('\n');
     reader.toss(1);
 
-    std.log.debug("loadItem {x} {x} {d} {d} {s}\n", .{ id, tag_id, status, order, name });
+    std.log.debug("loadItem {x} {x} {d} {d} {s}", .{ id, tag_id, status, order, name });
 
     return .{
         .id = id,
