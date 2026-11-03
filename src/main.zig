@@ -380,6 +380,8 @@ pub fn appFrame() !dvui.App.Result {
         //    new_item = true;
         //}
 
+        const sub_win_id = dvui.subwindowCurrentId(); // before sug.dropped
+
         var te: dvui.TextEntryWidget = undefined;
         te.init(@src(), .{}, .{ .expand = .horizontal });
 
@@ -389,9 +391,11 @@ pub fn appFrame() !dvui.App.Result {
         if (sug.dropped()) {
             if (sug.addChoiceLabel(te.textGet())) {
                 make_new = true;
+                dvui.focusWidget(null, sub_win_id, null);
             }
             if (sug.addChoiceLabel("[close]")) {
                 sug.close();
+                dvui.focusWidget(null, sub_win_id, null);
             }
             var matches: std.ArrayList(*List.Item) = .empty;
             for (list.stuff.items) |*li| {
@@ -409,6 +413,7 @@ pub fn appFrame() !dvui.App.Result {
 
             for (matches.items) |lip| {
                 if (sug.addChoiceLabel(std.mem.sliceTo(&lip.name, 0))) {
+                    dvui.focusWidget(null, sub_win_id, null);
                     if (editing_tags) {
                         lip.updateStatus(time(), .tag);
                         changed = true;
