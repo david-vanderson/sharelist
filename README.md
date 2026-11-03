@@ -8,17 +8,17 @@ Uses CRDTs to merge simultaneous changes.
 
 Run the server: `zig build serve-native`
 
-Run the native client: `zig build run -- http://localhost:3000/sharelist/list?id=abcdef00`
+Run the native client: `zig build run`
 
 ### Testing Web Client
 
 Run the server: `zig build serve`
 
-Browser open `http:localhost:3000/sharelist/?id=abcdef00`
+Browser open `http:localhost:3000/sharelist/?id=abcdef00abcdef00`
 
 ## Add New List
 
-Create an empty file with an 8 char lowercase hex name in lists: `touch lists/abcdef01`
+Create an empty file with an 16 char lowercase hex name in lists: `touch lists/abcdef01abcdef01`
 
 ## Deploying
 
