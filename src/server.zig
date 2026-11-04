@@ -9,10 +9,12 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
 
     const args = try init.minimal.args.toSlice(arena);
-    for (args) |a| std.debug.print("arg: {s}\n", .{a});
+    for (args) |a| std.log.debug("arg: {s}", .{a});
     if (args.len == 4) try readFiles(io, arena, args);
 
     const addr = comptime std.Io.net.IpAddress.parse("127.0.0.1", 3000) catch unreachable;
+
+    std.log.debug("Example url: http://localhost:3000/sharelist/?id=abcdef00abcdef00", .{});
 
     var server = try addr.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);

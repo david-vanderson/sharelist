@@ -51,6 +51,25 @@ pub fn build(b: *std.Build) void {
     }
 
     {
+        const mod = b.createModule(.{
+            .root_source_file = b.path("src/make_list.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        const exe = b.addExecutable(.{
+            .name = "make-list",
+            .root_module = mod,
+        });
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(&b.addInstallArtifact(exe, .{}).step);
+
+        const run_step = b.step("make-list", "New Random List");
+        run_step.dependOn(&run_cmd.step);
+    }
+
+    {
         const web_target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .os_tag = .freestanding,
