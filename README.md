@@ -4,6 +4,8 @@ Server and client (native and web) for sharing lists of things.
 
 Uses CRDTs to merge simultaneous changes.
 
+![Screenshot](/screenshot.png?raw=true)
+
 ## Testing Locally
 
 Run the server: `zig build serve-native`
@@ -18,7 +20,9 @@ Browser open `http:localhost:3000/sharelist/?id=abcdef00abcdef00`
 
 ## Add New List
 
-Create an empty file with an 16 char lowercase hex name in lists: `touch lists/abcdef01abcdef01`
+`zig build make-list` will generate a random list and output example urls.
+
+Or create an empty file with an 16 char lowercase hex name in lists: `touch lists/abcdef01abcdef01`
 
 ## Deploying
 
