@@ -6,7 +6,8 @@
     .fingerprint = 0x735c6412032f51f8,
     .dependencies = .{
         .dvui = .{
-            .path = "../dvui",
+            .url = "git+https://github.com/david-vanderson/dvui?ref=main#d33935989e166d8340c9dd2888ad8aff0265c4ba",
+            .hash = "dvui-0.6.0-dev-AQFJmROtBAGQY_PnyAZrF1ccsgzQaWPNp0LWI55FM5Nk",
         },
     },
 }
