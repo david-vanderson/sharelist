@@ -469,7 +469,7 @@ pub fn appFrame() !dvui.App.Result {
         var reorderable = reorder.reorderable(@src(), .{}, .{ .id_extra = li.id, .expand = .horizontal });
         defer reorderable.deinit();
 
-        var anim = dvui.animate(@src(), .{ .kind = .vertical, .duration = if (reorderable.floating()) 0 else 300_000 }, .{ .expand = .both });
+        var anim = dvui.animate(@src(), .{ .kind = .vertical, .duration = 300_000 }, .{ .expand = .both });
         defer anim.deinit();
 
         if (reorderable.removed()) {
@@ -554,12 +554,12 @@ pub fn appFrame() !dvui.App.Result {
             var tag_idx: usize = 0;
             var tag_name: []const u8 = "----";
             for (list.stuff.items) |*item| {
+                if (item.status == .tag) {
+                    tag_idx += 1;
+                }
                 if (li.tag == item.id) {
                     tag_name = std.mem.sliceTo(&item.name, 0);
                     break;
-                }
-                if (item.status == .tag) {
-                    tag_idx += 1;
                 }
             }
 
@@ -600,9 +600,11 @@ pub fn appFrame() !dvui.App.Result {
             if (ri > ibi) {
                 // we want to be before ibi, but reorder will move that down, so the slot we want is exactly ibi
                 list.reorder(time(), ri, ibi);
+                changed = true;
             } else if (ri != ibi - 1) {
                 // ibi is not moving, so we want the slot before it
                 list.reorder(time(), ri, ibi - 1);
+                changed = true;
             }
         }
     }
