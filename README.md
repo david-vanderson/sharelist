@@ -27,7 +27,7 @@ Or create an empty file with an 16 char lowercase hex name in lists: `touch list
 ## Deploying
 
 Compile server and web:
-`zig build compile-server -Doptimize=fast`
+`zig build compile-server -Doptimize=safe`
 `zig build web -Doptimize=small`
 
 Copy files:
