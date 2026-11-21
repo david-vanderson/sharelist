@@ -463,7 +463,9 @@ pub fn appFrame() !dvui.App.Result {
 
         last_index = i;
 
-        var reorderable = reorder.reorderable(@src(), .{}, .{ .id_extra = li.id, .expand = .horizontal });
+        defer _ = dvui.separator(@src(), .{ .id_extra = li.id, .expand = .horizontal });
+
+        var reorderable = reorder.reorderable(@src(), .{}, .{ .id_extra = li.id, .expand = .horizontal, .min_size_content = .height(30)});
         defer reorderable.deinit();
 
         var anim = dvui.animate(@src(), .{ .kind = .vertical, .duration = 300_000 }, .{ .expand = .both });
@@ -475,7 +477,7 @@ pub fn appFrame() !dvui.App.Result {
             insert_before_idx = i; // this entry was dropped onto
         }
 
-        var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .horizontal, .padding = .{ .x = 8 } });
+        var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .both, .padding = .{ .x = 8 } });
 
         if (editing_tags) {
             if (dvui.buttonIcon(
@@ -513,8 +515,7 @@ pub fn appFrame() !dvui.App.Result {
             }, .{
                 .style = .window,
                 .border = .all(0),
-                .min_size_content = .all(10),
-                .margin = .all(0),
+                .margin = .all(1),
                 .gravity_y = 0.5,
                 .expand = .both,
             });
@@ -526,7 +527,6 @@ pub fn appFrame() !dvui.App.Result {
 
             var save = false;
             if (te.data().id != dvui.focusedWidgetId()) {
-                std.debug.print("lost focus {?x}\n", .{dvui.focusedWidgetId()});
                 // we were focused and lost it
                 save = true;
             }
@@ -542,7 +542,7 @@ pub fn appFrame() !dvui.App.Result {
             }
             te.deinit();
         } else {
-            _ = dvui.ReorderWidget.draggable(@src(), .{ .reorderable = reorderable }, .{ .gravity_x = 1.0, .min_size_content = dvui.Size.all(30), .gravity_y = 0.5, .color_text = .gray });
+            _ = dvui.ReorderWidget.draggable(@src(), .{ .reorderable = reorderable }, .{ .gravity_x = 1.0, .expand = .ratio, .gravity_y = 0.5, .color_text = .gray });
 
             if (!editing_tags and tag_id == 0) {
                 var tag_idx: usize = 0;
@@ -588,8 +588,6 @@ pub fn appFrame() !dvui.App.Result {
         }
 
         hbox.deinit();
-
-        _ = dvui.separator(@src(), .{ .expand = .horizontal });
     }
 
     if (reorder.finalSlot()) {
