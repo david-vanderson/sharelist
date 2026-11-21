@@ -185,9 +185,7 @@ fn sync() !void {
 
 // Run each frame to do normal UI
 pub fn appFrame() !dvui.App.Result {
-    const new_item = false;
     var refresh_items = false;
-    var items_visible = false;
     var changed = false;
 
     if (dvui.backend.kind == .web) {
@@ -463,7 +461,6 @@ pub fn appFrame() !dvui.App.Result {
             if (tag_id != 0 and li.tag != tag_id) continue;
         }
 
-        items_visible = true;
         last_index = i;
 
         var reorderable = reorder.reorderable(@src(), .{}, .{ .id_extra = li.id, .expand = .horizontal });
@@ -504,85 +501,89 @@ pub fn appFrame() !dvui.App.Result {
             }
         }
 
-        //dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
+        const uniqueId = dvui.parentGet().extendId(@src(), 0);
+        const editing = dvui.dataGetPtrDefault(null, uniqueId, "editing", bool, false);
 
-        var te = dvui.textEntry(@src(), .{
-            .text = .{ .internal = .{ .limit = List.NAME_MAX_LEN } },
-            .text_initial = std.mem.sliceTo(&li.name, 0),
-        }, .{
-            .style = .window,
-            .border = .all(0),
-            .min_size_content = dvui.Font.theme(.body).sizeM(1, 1),
-            .max_size_content = .size(dvui.Font.theme(.body).sizeM(200, 1)),
-        });
+        if (refresh_items) editing.* = false;
 
-        if (refresh_items) {
-            te.textSet(std.mem.sliceTo(&li.name, 0), false);
-        }
+        if (editing.*) {
+            var te = dvui.textEntry(@src(), .{
+                .text = .{ .internal = .{ .limit = List.NAME_MAX_LEN } },
+                .text_initial = std.mem.sliceTo(&li.name, 0),
+            }, .{
+                .style = .window,
+                .border = .all(0),
+                .min_size_content = .all(10),
+                .margin = .all(0),
+                .gravity_y = 0.5,
+                .expand = .both,
+            });
 
-        if (new_item and i == list.stuff.items.len - 1) {
-            dvui.focusWidget(te.data().id, null, null);
-        }
-
-        var save = false;
-        const focused = dvui.dataGetPtrDefault(null, te.data().id, "focused", bool, false);
-        if (te.data().id == dvui.focusedWidgetId()) {
-            if (!focused.*) {
-                // just gained focus, move cursor to end
+            if (dvui.firstFrame(te.data().id)) {
+                dvui.focusWidget(te.data().id, null, null);
                 te.textLayout.selection.moveCursor(std.math.maxInt(usize), false);
             }
-            focused.* = true;
-        } else if (focused.*) {
-            focused.* = false;
-            // we were focused and lost it
-            save = true;
-        }
 
-        if (te.enter_pressed) save = true;
-
-        if (save) {
-            if (!std.mem.eql(u8, te.textGet(), std.mem.sliceTo(&li.name, 0))) {
-                li.updateName(time(), te.textGet());
-                changed = true;
-            }
-        }
-        te.deinit();
-
-        _ = dvui.ReorderWidget.draggable(@src(), .{ .reorderable = reorderable }, .{ .gravity_x = 1.0, .min_size_content = dvui.Size.all(30), .gravity_y = 0.5, .color_text = .gray });
-
-        if (!editing_tags and tag_id == 0) {
-            var tag_idx: usize = 0;
-            var tag_name: []const u8 = "----";
-            for (list.stuff.items) |*item| {
-                if (item.status == .tag) {
-                    tag_idx += 1;
-                }
-                if (li.tag == item.id) {
-                    tag_name = std.mem.sliceTo(&item.name, 0);
-                    break;
-                }
+            var save = false;
+            if (te.data().id != dvui.focusedWidgetId()) {
+                std.debug.print("lost focus {?x}\n", .{dvui.focusedWidgetId()});
+                // we were focused and lost it
+                save = true;
             }
 
-            var dd: dvui.DropdownWidget = undefined;
-            dd.init(@src(), .{ .selected_index = tag_idx }, .{ .gravity_x = 1.0, .padding = .all(3), .background = false });
-            defer dd.deinit();
+            if (te.enter_pressed) save = true;
 
-            dvui.label(@src(), "{s}", .{tag_name}, .{ .color_text = .gray, .font = dvui.Font.theme(.body).larger(-2), .padding = .{}, .margin = .{} });
-
-            if (dd.dropped()) {
-                if (dd.addChoiceLabel("----")) {
-                    li.updateTag(time(), 0);
+            if (save) {
+                editing.* = false;
+                if (!std.mem.eql(u8, te.textGet(), std.mem.sliceTo(&li.name, 0))) {
+                    li.updateName(time(), te.textGet());
                     changed = true;
                 }
-                for (list.stuff.items) |*lip| {
-                    if (lip.status == .tag) {
-                        const name = std.mem.sliceTo(&lip.name, 0);
-                        if (dd.addChoiceLabel(name)) {
-                            li.updateTag(time(), lip.id);
-                            changed = true;
+            }
+            te.deinit();
+        } else {
+            _ = dvui.ReorderWidget.draggable(@src(), .{ .reorderable = reorderable }, .{ .gravity_x = 1.0, .min_size_content = dvui.Size.all(30), .gravity_y = 0.5, .color_text = .gray });
+
+            if (!editing_tags and tag_id == 0) {
+                var tag_idx: usize = 0;
+                var tag_name: []const u8 = "----";
+                for (list.stuff.items) |*item| {
+                    if (item.status == .tag) {
+                        tag_idx += 1;
+                    }
+                    if (li.tag == item.id) {
+                        tag_name = std.mem.sliceTo(&item.name, 0);
+                        break;
+                    }
+                }
+
+                var dd: dvui.DropdownWidget = undefined;
+                dd.init(@src(), .{ .selected_index = tag_idx }, .{ .gravity_x = 1.0, .padding = .all(3), .background = false });
+                defer dd.deinit();
+
+                dvui.label(@src(), "{s}", .{tag_name}, .{ .color_text = .gray, .font = dvui.Font.theme(.body).larger(-2), .padding = .{}, .margin = .{} });
+
+                if (dd.dropped()) {
+                    if (dd.addChoiceLabel("----")) {
+                        li.updateTag(time(), 0);
+                        changed = true;
+                    }
+                    for (list.stuff.items) |*lip| {
+                        if (lip.status == .tag) {
+                            const name = std.mem.sliceTo(&lip.name, 0);
+                            if (dd.addChoiceLabel(name)) {
+                                li.updateTag(time(), lip.id);
+                                changed = true;
+                            }
                         }
                     }
                 }
+            }
+
+            var wd: dvui.WidgetData = undefined;
+            dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .gravity_y = 0.5, .min_size_content = .width(50), .data_out = &wd });
+            if (dvui.clicked(&wd, .{})) {
+                editing.* = true;
             }
         }
 
@@ -620,7 +621,6 @@ pub fn appFrame() !dvui.App.Result {
             if (li.status != .got) continue;
             if (tag_id != 0 and li.tag != tag_id) continue;
 
-            items_visible = true;
             items_got = true;
 
             var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .id_extra = i, .expand = .horizontal, .padding = .{ .x = 8 } });
@@ -646,10 +646,8 @@ pub fn appFrame() !dvui.App.Result {
                     }
                 }
             }
-        }
-
-        if (!items_visible) {
-            dvui.label(@src(), "-- No Items --", .{}, .{ .gravity_x = 0.5 });
+        } else {
+            dvui.label(@src(), "-- No Checked Items --", .{}, .{ .gravity_x = 0.5 });
         }
     }
 
