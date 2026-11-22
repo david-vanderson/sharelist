@@ -360,8 +360,9 @@ pub fn appFrame() !dvui.App.Result {
         if (te.enter_pressed) save = true;
 
         if (save) {
-            if (!std.mem.eql(u8, te.textGet(), std.mem.sliceTo(&list.name, 0))) {
-                list.updateName(time(), te.textGet());
+            const trimmed = std.mem.trim(u8, te.textGet(), " ");
+            if (!std.mem.eql(u8, trimmed, std.mem.sliceTo(&list.name, 0))) {
+                list.updateName(time(), trimmed);
                 changed = true;
                 dvui.currentWindow().title(std.mem.sliceTo(&list.name, 0));
             }
@@ -388,7 +389,8 @@ pub fn appFrame() !dvui.App.Result {
 
         if (sug.dropped()) {
             if (sug.addChoiceLabel(te.textGet())) {
-                const item = List.Item.new(time(), if (editing_tags) .tag else .want, tag_id, te.textGet());
+                const trimmed = std.mem.trim(u8, te.textGet(), " ");
+                const item = List.Item.new(time(), if (editing_tags) .tag else .want, tag_id, trimmed);
                 list.append(gpa, time(), item);
                 changed = true;
                 te.textSet("", false);
@@ -408,7 +410,7 @@ pub fn appFrame() !dvui.App.Result {
             var matches: std.ArrayList(*List.Item) = .empty;
             for (list.stuff.items) |*li| {
                 if (li.status == .tag) continue;
-                if (std.ascii.startsWithIgnoreCase(&li.name, te.textGet())) {
+                if (std.ascii.findIgnoreCase(&li.name, te.textGet()) != null) {
                     matches.append(dvui.currentWindow().arena(), li) catch {};
                 }
             }
@@ -419,7 +421,9 @@ pub fn appFrame() !dvui.App.Result {
                 }
             }).lessThan);
 
-            for (matches.items) |lip| {
+            for (matches.items, 0..) |lip, i| {
+                if (i >= 20) break;
+
                 if (sug.addChoiceLabel(std.mem.sliceTo(&lip.name, 0))) {
                     dvui.focusWidget(null, sub_win_id, null);
                     if (editing_tags) {
@@ -465,7 +469,7 @@ pub fn appFrame() !dvui.App.Result {
 
         defer _ = dvui.separator(@src(), .{ .id_extra = li.id, .expand = .horizontal });
 
-        var reorderable = reorder.reorderable(@src(), .{}, .{ .id_extra = li.id, .expand = .horizontal, .min_size_content = .height(30)});
+        var reorderable = reorder.reorderable(@src(), .{}, .{ .id_extra = li.id, .expand = .horizontal });
         defer reorderable.deinit();
 
         var anim = dvui.animate(@src(), .{ .kind = .vertical, .duration = 300_000 }, .{ .expand = .both });
@@ -477,7 +481,7 @@ pub fn appFrame() !dvui.App.Result {
             insert_before_idx = i; // this entry was dropped onto
         }
 
-        var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .both, .padding = .{ .x = 8 } });
+        var hbox = dvui.box(@src(), .{ .dir = .horizontal }, .{ .expand = .both, .padding = .{ .x = 8 }, .min_size_content = .height(30) });
 
         if (editing_tags) {
             if (dvui.buttonIcon(
@@ -513,7 +517,6 @@ pub fn appFrame() !dvui.App.Result {
                 .text = .{ .internal = .{ .limit = List.NAME_MAX_LEN } },
                 .text_initial = std.mem.sliceTo(&li.name, 0),
             }, .{
-                .style = .window,
                 .border = .all(0),
                 .margin = .all(1),
                 .gravity_y = 0.5,
@@ -535,8 +538,9 @@ pub fn appFrame() !dvui.App.Result {
 
             if (save) {
                 editing.* = false;
-                if (!std.mem.eql(u8, te.textGet(), std.mem.sliceTo(&li.name, 0))) {
-                    li.updateName(time(), te.textGet());
+                const trimmed = std.mem.trim(u8, te.textGet(), " ");
+                if (!std.mem.eql(u8, trimmed, std.mem.sliceTo(&li.name, 0))) {
+                    li.updateName(time(), trimmed);
                     changed = true;
                 }
             }
@@ -625,12 +629,10 @@ pub fn appFrame() !dvui.App.Result {
             defer hbox.deinit();
 
             var temp: bool = true;
-            if (dvui.checkbox(@src(), &temp, "", .{ .gravity_y = 0.5 })) {
+            if (dvui.checkbox(@src(), &temp, null, .{ .gravity_y = 0.5 })) {
                 li.updateStatus(time(), .want);
                 changed = true;
             }
-
-            _ = dvui.spacer(@src(), .{ .padding = .{ .x = 4 } });
 
             dvui.label(@src(), "{s}", .{std.mem.sliceTo(&li.name, 0)}, .{ .color_text = .gray });
         }
