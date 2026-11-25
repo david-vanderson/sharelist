@@ -185,7 +185,6 @@ fn sync() !void {
 
 // Run each frame to do normal UI
 pub fn appFrame() !dvui.App.Result {
-    var refresh_items = false;
     var changed = false;
 
     if (dvui.backend.kind == .web) {
@@ -210,7 +209,6 @@ pub fn appFrame() !dvui.App.Result {
 
             list.merge(gpa, time(), &loaded);
             dvui.currentWindow().title(std.mem.sliceTo(&list.name, 0));
-            refresh_items = true;
 
             //std.log.debug("wasm fetch complete ({d}): {s}", .{ status, data });
         } else if (status > 0) {
@@ -296,12 +294,10 @@ pub fn appFrame() !dvui.App.Result {
 
         if (dvui.button(@src(), "Sync", .{}, .{ .gravity_x = 1.0 })) {
             try sync();
-            refresh_items = true;
         }
 
         if ((time() - last_sync) > 1 * std.time.ns_per_min) {
             try sync();
-            refresh_items = true;
         }
 
         if (dvui.button(@src(), "Debug", .{}, .{ .gravity_x = 1.0 })) {
@@ -338,10 +334,6 @@ pub fn appFrame() !dvui.App.Result {
             .text_initial = std.mem.sliceTo(&list.name, 0),
         }, .{ .expand = .horizontal });
         defer te.deinit();
-
-        if (refresh_items) {
-            te.textSet(std.mem.sliceTo(&list.name, 0), false);
-        }
 
         var save = false;
         const focused = dvui.dataGetPtrDefault(null, te.data().id, "focused", bool, false);
@@ -648,6 +640,9 @@ pub fn appFrame() !dvui.App.Result {
             dvui.label(@src(), "-- No Checked Items --", .{}, .{ .gravity_x = 0.5, .color_text = .gray });
         }
     }
+
+    // need some space for phones that put extra stuff above the on-screen-keyboard
+    _ = dvui.spacer(@src(), .{ .min_size_content = .height(50) });
 
     if (changed) try sync();
 
