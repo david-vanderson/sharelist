@@ -128,7 +128,7 @@ fn sync() !void {
             std.log.err("query bad: no id", .{});
             return;
         }
-        std.log.debug("id is {any}", .{list_id});
+        //std.log.debug("id is {any}", .{list_id});
 
         var target_buf: [100]u8 = undefined;
         const target = try std.fmt.bufPrint(&target_buf, "/sharelist/list?id={x}", .{list_id.?});
@@ -212,7 +212,7 @@ pub fn appFrame() !dvui.App.Result {
             dvui.currentWindow().title(std.mem.sliceTo(&list.name, 0));
             refresh_items = true;
 
-            std.log.debug("wasm fetch complete ({d}): {s}", .{ status, data });
+            //std.log.debug("wasm fetch complete ({d}): {s}", .{ status, data });
         } else if (status > 0) {
             std.log.err("wasm fetch failed ({d})", .{status});
         }
@@ -510,8 +510,6 @@ pub fn appFrame() !dvui.App.Result {
         const uniqueId = dvui.parentGet().extendId(@src(), 0);
         const editing = dvui.dataGetPtrDefault(null, uniqueId, "editing", bool, false);
 
-        if (refresh_items) editing.* = false;
-
         if (editing.*) {
             var te = dvui.textEntry(@src(), .{
                 .text = .{ .internal = .{ .limit = List.NAME_MAX_LEN } },
@@ -647,7 +645,7 @@ pub fn appFrame() !dvui.App.Result {
                 }
             }
         } else {
-            dvui.label(@src(), "-- No Checked Items --", .{}, .{ .gravity_x = 0.5 });
+            dvui.label(@src(), "-- No Checked Items --", .{}, .{ .gravity_x = 0.5, .color_text = .gray });
         }
     }
 

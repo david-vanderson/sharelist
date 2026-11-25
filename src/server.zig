@@ -71,7 +71,7 @@ fn accept(stream: std.Io.net.Stream, io: std.Io) std.Io.Cancelable!void {
     defer stream.close(io);
 
     acceptInner(stream, io) catch |err| {
-        std.log.err("Connection error: {t}", .{err});
+        std.log.err("{d} Connection error: {t}", .{ std.Io.Clock.real.now(io), err });
         _ = try io.sleep(.fromSeconds(2), .awake);
     };
 }

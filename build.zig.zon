@@ -7,8 +7,8 @@
     .dependencies = .{
         .dvui = .{
             //.path = "../dvui",
-            .url = "git+https://github.com/david-vanderson/dvui?ref=main#9483bd6a559d035f5cdaa25c5c338f969ccae480",
-            .hash = "dvui-0.6.0-dev-AQFJmS2uAwFZqiAyv12-TSlgTK9PCKDdQPsDbizQ_JBX",
+            .url = "git+https://github.com/david-vanderson/dvui?ref=main#83ffb66b8fe56aa3599bd4d2b085114a43f42d5a",
+            .hash = "dvui-0.6.0-dev-AQFJmQ3KAwH8_NtxjgPBy-cNP9tP51n1S1_oDba47qo0",
         },
     },
 }

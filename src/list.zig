@@ -230,7 +230,12 @@ pub fn load(gpa: std.mem.Allocator, reader: *std.Io.Reader) !@This() {
 
     while (true) {
         const item = loadItem(reader) catch |err| {
-            std.log.debug("loadItem got {any}", .{err});
+            switch (err) {
+                error.EndOfStream => {}, // normal
+                else => {
+                    std.log.err("loadItem got {any}", .{err});
+                },
+            }
             return ret;
         };
         ret.stuff.append(gpa, item) catch |err| {
@@ -266,7 +271,7 @@ fn loadItem(reader: *std.Io.Reader) !Item {
     const name = try reader.takeDelimiterExclusive('\n');
     reader.toss(1);
 
-    std.log.debug("loadItem {x} {x} {d} {d} {s}", .{ id, tag_id, status, order, name });
+    //std.log.debug("loadItem {x} {x} {d} {d} {s}", .{ id, tag_id, status, order, name });
 
     return .{
         .id = id,
